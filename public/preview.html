@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Voiceover Studio - ห้องพากย์เสียง AI (Standalone Preview)</title>
+  <meta name="description" content="สตูดิโอสร้างเสียงพากย์ด้วย AI ปรับระดับเสียง อารมณ์ ความเร็ว SFX และเพลงพื้นหลัง" />
+  <!-- Google Fonts: Prompt & Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Prompt', 'Plus Jakarta Sans', 'sans-serif'],
+          },
+          colors: {
+            studio: {
+              900: '#0B0F17',
+              800: '#111827',
+              700: '#1E293B',
+              amber: '#F59E0B',
+              cyan: '#06B6D4',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Prompt', 'Plus Jakarta Sans', sans-serif;
+      background-color: #050811;
+      color: #f1f5f9;
+    }
+    .glow-amber {
+      box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.25);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.25);
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#050811] text-slate-100 flex flex-col">
+
+  <!-- Header / Navigation Bar -->
+  <header class="sticky top-0 z-50 bg-[#0B0F17]/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-300 flex items-center justify-center shadow-lg shadow-amber-500/20">
+        <span class="text-xl">🎙️</span>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-lg text-white tracking-wide">AI Voiceover Studio</h1>
+          <span class="px-2 py-0.5 text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-full">Pro Thai Edition</span>
+        </div>
+        <p class="text-xs text-slate-400">ระบบสตูดิโอพากย์เสียง AI ปรับสปีด มิกซ์ SFX & Ambient ในตัว</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="btnDownloadCode" class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition">
+        <span>💾</span> บันทึกไฟล์ HTML นี้
+      </button>
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        <span>ระบบพร้อมใช้งาน</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Studio Hero Banner -->
+  <div class="relative overflow-hidden bg-gradient-to-b from-slate-900 to-[#050811] border-b border-slate-800/60 py-6 px-4 sm:px-8">
+    <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+      <div class="flex-1 space-y-2 text-center md:text-left">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+          <span class="text-amber-400">✨</span> สตูดิโอดิจิทัลเจนเนอเรชันใหม่
+          <span class="text-slate-500">•</span>
+          <span class="text-cyan-400">เสียงชาย & หญิง สมดุล 6 สไตล์</span>
+        </div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          สร้างเสียงพากย์ภาษาไทยระดับมือโปร <span class="bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">สมจริงและมีมิติ</span>
+        </h2>
+        <p class="text-sm text-slate-400 max-w-2xl">
+          เลือกคาแรคเตอร์เสียงชาย/หญิง ปรับอารมณ์ สปีดการพูด (ช้า 0.75x / ปกติ 1.0x / เร็ว 1.25x) พร้อมแทรกเสียงเอฟเฟกต์ SFX (ปรบมือ, แคชเชียร์, หัวเราะ) และดนตรีพื้นหลัง Ambient
+        </p>
+      </div>
+
+      <!-- Live Specs Badge -->
+      <div class="flex items-center gap-3 bg-slate-900/80 p-3 rounded-2xl border border-slate-800 shadow-xl">
+        <div class="text-center px-3 py-1">
+          <div class="text-lg font-bold text-amber-400">6</div>
+          <div class="text-[11px] text-slate-400">คาแรคเตอร์</div>
+        </div>
+        <div class="w-px h-8 bg-slate-800"></div>
+        <div class="text-center px-3 py-1">
+          <div class="text-lg font-bold text-cyan-400">7</div>
+          <div class="text-[11px] text-slate-400">เสียง SFX</div>
+        </div>
+        <div class="w-px h-8 bg-slate-800"></div>
+        <div class="text-center px-3 py-1">
+          <div class="text-lg font-bold text-emerald-400">5</div>
+          <div class="text-[11px] text-slate-400">Ambient</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Column: Controls (Voice, Style, Speed, SFX, Ambient) -->
+    <div class="lg:col-span-7 space-y-6">
+
+      <!-- 1. Voice Character Selection (Male & Female Balanced) -->
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🎭</span>
+            <h3 class="font-bold text-white text-base">1. เลือกคาแรคเตอร์เสียงพากย์</h3>
+          </div>
+          <!-- Gender Tab Switcher -->
+          <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button id="tabFemale" class="px-3 py-1 rounded-lg font-medium bg-pink-500/20 text-pink-300 border border-pink-500/30 transition">
+              👩 เสียงผู้หญิง (3)
+            </button>
+            <button id="tabMale" class="px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 transition">
+              👨 เสียงผู้ชาย (3)
+            </button>
+          </div>
+        </div>
+
+        <!-- Voice Cards Container -->
+        <div id="voiceGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <!-- Rendered dynamically by JS -->
+        </div>
+      </div>
+
+      <!-- 2. Style Preset Selection -->
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🎨</span>
+            <h3 class="font-bold text-white text-base">2. สไตล์และอารมณ์การพูด</h3>
+          </div>
+          <span class="text-xs text-slate-400" id="styleCountLabel">8 สไตล์</span>
+        </div>
+        <div id="styleGrid" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <!-- Rendered dynamically by JS -->
+        </div>
+      </div>
+
+      <!-- 3. Speed Rate Selector -->
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">⏱️</span>
+            <h3 class="font-bold text-white text-base">3. ความเร็วในการพากย์ (Pacing)</h3>
+          </div>
+          <span id="speedValueLabel" class="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
+            ปกติ (1.0x)
+          </span>
+        </div>
+        
+        <!-- Speed Buttons -->
+        <div class="grid grid-cols-3 gap-3 mb-3">
+          <button data-speed="slow" data-rate="0.75" class="speed-btn py-2 px-3 rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700 text-xs font-medium flex flex-col items-center gap-1 transition">
+            <span>🐢 ช้า (Slow)</span>
+            <span class="text-[10px] text-slate-500">0.75x ชัดถ้อยชัดคำ</span>
+          </button>
+          <button data-speed="normal" data-rate="1.0" class="speed-btn active-speed py-2 px-3 rounded-xl border border-amber-500 bg-amber-500/10 text-amber-300 text-xs font-medium flex flex-col items-center gap-1 transition">
+            <span>🗣️ ปกติ (Normal)</span>
+            <span class="text-[10px] text-amber-400/80">1.0x ธรรมชาติ สมดุล</span>
+          </button>
+          <button data-speed="fast" data-rate="1.25" class="speed-btn py-2 px-3 rounded-xl border border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700 text-xs font-medium flex flex-col items-center gap-1 transition">
+            <span>⚡ เร็ว (Fast)</span>
+            <span class="text-[10px] text-slate-500">1.25x กระชับ สนุกสนาน</span>
+          </button>
+        </div>
+
+        <!-- Custom Slider -->
+        <div class="flex items-center gap-3 pt-1">
+          <span class="text-[11px] text-slate-400">ปรับละเอียด:</span>
+          <input id="speedSlider" type="range" min="0.5" max="2.0" step="0.05" value="1.0" class="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+          <span id="sliderValue" class="text-xs text-slate-300 font-mono w-10 text-right">1.00x</span>
+        </div>
+      </div>
+
+      <!-- 4. Background Music & Ambient Sound -->
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🎵</span>
+            <h3 class="font-bold text-white text-base">4. ดนตรีพื้นหลัง & เสียง Ambient</h3>
+          </div>
+          <button id="btnPreviewAmbient" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1">
+            <span>▶️</span> ฟังเสียงแบ็คกราวด์
+          </button>
+        </div>
+
+        <div id="ambientGrid" class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
+          <!-- Rendered dynamically by JS -->
+        </div>
+
+        <div class="flex items-center justify-between gap-4 pt-1 border-t border-slate-800/60 mt-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-400">ระดับเสียงแบ็คกราวด์:</span>
+            <input id="ambientVolSlider" type="range" min="0" max="1" step="0.02" value="0.2" class="w-28 sm:w-36 accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+            <span id="ambientVolLabel" class="text-xs font-mono text-cyan-400">20%</span>
+          </div>
+          <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+            <input id="chkMixAmbient" type="checkbox" checked class="accent-amber-500 rounded">
+            <span>มิกซ์รวมลงไฟล์ดาวน์โหลด</span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Script Editor, SFX Toolbar, Voiceover Generation & Audio Player -->
+    <div class="lg:col-span-5 space-y-6">
+
+      <!-- Script Editor Card -->
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg space-y-4">
+        
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">✍️</span>
+            <h3 class="font-bold text-white text-base">บทพากย์ & เอฟเฟกต์ SFX</h3>
+          </div>
+          <select id="selPreset" class="text-xs bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-300 focus:outline-none focus:border-amber-500">
+            <option value="">-- เลือกสคริปต์ตัวอย่าง (26+ ตัวอย่าง) --</option>
+            <optgroup label="🗺️ สำเนียง 4 ภาค (เหนือ • อีสาน • ใต้)">
+              <option value="dialect_north_f">🏔️ คำเมือง (หญิง): แอ่วเจียงใหม่ จิบกาแฟดอย</option>
+              <option value="dialect_north_m">🏔️ คำเมือง (ชาย): สารคดีเสน่ห์วิถีชีวิตล้านนา</option>
+              <option value="dialect_isan_f">🌾 เว้าอีสาน (หญิง): ตำบักหุ่งแซ่บหลาย ป้ายยาของนัว</option>
+              <option value="dialect_isan_m">🌾 เว้าอีสาน (ชาย): ชวนเที่ยวงานบุญบั้งไฟ ม่วนซื่น</option>
+              <option value="dialect_south_f">🌊 แหลงใต้ (หญิง): แกงส้มปลากะพงยอดมะพร้าว หรอยจังหู้</option>
+              <option value="dialect_south_m">🌊 แหลงใต้ (ชาย): สปอตท่องเที่ยวทะเลอันดามัน ปักษ์ใต้</option>
+            </optgroup>
+            <optgroup label="⚡ สคริปต์พร้อมเสียง SFX">
+              <option value="sfx_promo">⚡ สปอต Flash Sale 11.11 (แจ้งเตือน, แคชเชียร์, ฉลอง)</option>
+              <option value="sfx_talkshow">🎙️ ทอล์คโชว์วาไรตี้ (ปรบมือ, หัวเราะ, ฉลอง)</option>
+              <option value="sfx_gameshow">🥁 เกมโชว์เงินล้าน (วู้ช, กลองระทึก, ฉลอง)</option>
+              <option value="sfx_boxing">🥊 สังเวียนมวยไทยระดับโลก (กลองระทึก, วู้ช, ปรบมือ)</option>
+              <option value="sfx_cafe">☕ คาเฟ่ Vlog ป้ายยา (แจ้งเตือน, ฉลอง)</option>
+            </optgroup>
+            <optgroup label="🛍️ โฆษณา & รีวิว TikTok">
+              <option value="coffee">☕ กาแฟสดออร์แกนิกยอดดอย</option>
+              <option value="beauty_serum">✨ เซรั่มผิวกระจก Glass Skin เกาหลี</option>
+              <option value="tiktok_gadget">🎧 รีวิว TikTok หูฟังตัดเสียงรบกวน ANC</option>
+              <option value="live_sale">🔥 ไลฟ์สดแม่ค้า แจกโค้ดลดกระหน่ำ 80%</option>
+              <option value="luxury_condo">🏙️ สปอตคอนโดหรูริมแม่น้ำเจ้าพระยา</option>
+              <option value="shabu_buffet">🥩 บุฟเฟต์ชาบูหม้อไฟวากิวพรีเมียม</option>
+            </optgroup>
+            <optgroup label="🎬 หนัง & อนิเมะ">
+              <option value="movie_scifi">🌌 ตัวอย่างหนังไซไฟ: กาลเวลาสิ้นสูญ</option>
+              <option value="movie_detective">🕵️ ตัวอย่างซีรีส์สืบสวน: รหัสคดีคืนเดือนดับ</option>
+              <option value="anime_magic">🌸 อนิเมะสาวน้อยเวทมนตร์พิทักษ์มิติ</option>
+              <option value="movie_romance">☔ หนังรักโรแมนติก: ความทรงจำใต้สายฝน</option>
+              <option value="game_trailer">⚔️ ตัวอย่างเกมแอ็คชั่น: มหาศึกปราการสุดท้าย</option>
+            </optgroup>
+            <optgroup label="💼 ธุรกิจ & ข่าวสาร">
+              <option value="news_economy">📰 รายงานข่าวเศรษฐกิจและการลงทุนภาคเช้า</option>
+              <option value="business_tech">💼 นวัตกรรม Enterprise AI สำหรับองค์กร</option>
+              <option value="airport_announce">✈️ ประกาศเที่ยวบินระหว่างประเทศ ท่าอากาศยาน</option>
+              <option value="documentary_ocean">🌊 สารคดีธรรมชาติ: ปริศนาแห่งห้วงมหาสมุทร</option>
+            </optgroup>
+            <optgroup label="🧘 ผ่อนคลาย & นิทาน">
+              <option value="meditation_calm">🧘 บทนำสมาธิ: พักผ่อนและผ่อนคลายจิตใจ</option>
+              <option value="turtle_story">🐢 นิทานก่อนนอน: กระต่ายกับเต่าในป่าใหญ่</option>
+              <option value="bedtime_star">⭐ นิทานกล่อมนอน: ดวงดาวน้อยกับการเดินทาง</option>
+              <option value="mindset_podcast">🎙️ พอดแคสต์ Mindset: พลังแห่งการเริ่มต้นใหม่</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- คำอธิบายวิธีใช้งานบทพากย์ -->
+        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-2.5">
+          <span class="text-base shrink-0">💡</span>
+          <div class="space-y-0.5 text-[11px] leading-relaxed">
+            <strong class="text-amber-300 font-semibold block">คำอธิบายวิธีพิมพ์บทพากย์:</strong>
+            <span>พิมพ์หรือวางข้อความภาษาไทยทั่วไปได้ทันที หรือเลือกจากเมนูสคริปต์ตัวอย่างด้านบนเพื่อโหลดบทและตั้งค่าเสียงอัตโนมัติ</span>
+          </div>
+        </div>
+
+        <!-- Script Textarea -->
+        <div class="relative">
+          <textarea
+            id="scriptInput"
+            rows="6"
+            class="w-full bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition leading-relaxed resize-y"
+            placeholder="พิมพ์หรือวางบทพากย์ที่นี่ เช่น: ยินดีต้อนรับทุกท่านสู่สตูดิโอสร้างเสียงพากย์ AI..."
+          ></textarea>
+          
+          <div class="flex items-center justify-between text-[11px] text-slate-500 mt-1 px-1">
+            <span id="sfxDetectedCount" class="text-emerald-400 font-medium">✨ เสียงพูดคมชัด คุณภาพสูง</span>
+            <span id="charCount">0 ตัวอักษร</span>
+          </div>
+        </div>
+
+        <!-- Generate Voiceover Button -->
+        <button
+          id="btnGenerate"
+          class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-black font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 active:scale-[0.98] transition"
+        >
+          <span class="text-base" id="genIcon">🎙️</span>
+          <span id="genText">สังเคราะห์เสียงพากย์ (Generate Voiceover)</span>
+        </button>
+
+      </div>
+
+      <!-- Audio Player & Visualizer Card -->
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🔊</span>
+            <h3 class="font-bold text-white text-base">เครื่องเล่นและดาวน์โหลด</h3>
+          </div>
+          <span id="audioStatusBadge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+            รอสร้างเสียง
+          </span>
+        </div>
+
+        <!-- Waveform Canvas -->
+        <div class="w-full h-20 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative flex items-center justify-center">
+          <canvas id="waveformCanvas" class="w-full h-full"></canvas>
+          <div id="waveformPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-600 text-xs gap-1 pointer-events-none">
+            <span>📊</span>
+            <span>คลื่นเสียงจะแสดงเมื่อเล่นเสียง</span>
+          </div>
+        </div>
+
+        <!-- Player Controls -->
+        <div class="space-y-3">
+          <!-- Time & Progress -->
+          <div class="space-y-1">
+            <input id="audioSeekBar" type="range" min="0" max="100" value="0" class="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+            <div class="flex justify-between text-[11px] font-mono text-slate-400">
+              <span id="currTimeLabel">00:00</span>
+              <span id="durTimeLabel">00:00</span>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center justify-between gap-3">
+            <button id="btnPlayPause" class="flex-1 py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs flex items-center justify-center gap-2 border border-slate-700 transition">
+              <span id="playIcon">▶️</span>
+              <span id="playText">เล่นเสียง</span>
+            </button>
+            <button id="btnDownload" class="flex-1 py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20 transition">
+              <span>⬇️</span>
+              <span>ดาวน์โหลดไฟล์เสียง (.wav)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Hidden Audio Element -->
+        <audio id="mainAudio"></audio>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="mt-auto border-t border-slate-800/80 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500">
+    <p>AI Voiceover Studio • สร้างด้วย HTML, CSS & JavaScript • รองรับ Web Audio API สังเคราะห์ SFX และ Ambient ครบวงจร</p>
+  </footer>
+
+  <!-- ========================================== -->
+  <!-- JAVASCRIPT APPLICATION LOGIC               -->
+  <!-- ========================================== -->
+  <script>
+    // ----------------------------------------------------
+    // 1. DATA DEFINITIONS (Voices, Styles, SFX, Ambients)
+    // ----------------------------------------------------
+    const VOICES = [
+      // Female Voices
+      { id: 'Kore', name: 'กอหญ้า (Kore)', gender: 'female', desc: 'อบอุ่น นุ่มนวล ไพเราะ เหมาะกับนิทานและบรรยาย', icon: '🌸', color: 'pink' },
+      { id: 'Mira', name: 'มิล่า (Mira)', gender: 'female', desc: 'สดใส ร่าเริง วัยรุ่น สนุกสนาน คอนเทนต์โซเชียล', icon: '✨', color: 'pink' },
+      { id: 'Elena', name: 'เอเลน่า (Elena)', gender: 'female', desc: 'สุขุม มั่นใจ มืออาชีพ ข่าวและพรีเซนต์ธุรกิจ', icon: '💼', color: 'pink' },
+      // Male Voices
+      { id: 'Puck', name: 'ภีม (Puck)', gender: 'male', desc: 'ขี้เล่น ทันสมัย พลังบวก แคสเตอร์และคลิปสั้น', icon: '⚡', color: 'blue' },
+      { id: 'Fenrir', name: 'ฟาร์โร (Fenrir)', gender: 'male', desc: 'ทุ้มลึก ดุดัน น่าเกรงขาม ภาพยนตร์และสารคดี', icon: '🦁', color: 'blue' },
+      { id: 'Charon', name: 'ชาญ (Charon)', gender: 'male', desc: 'นุ่มลึก เป็นทางการ ผู้ประกาศข่าวและสารคดี', icon: '🎙️', color: 'blue' },
+    ];
+
+    const STYLES = [
+      { id: 'natural', name: 'เป็นธรรมชาติ', icon: '🍃', gender: 'both' },
+      { id: 'commercial', name: 'โฆษณาดึงดูด', icon: '🛍️', gender: 'both' },
+      { id: 'documentary', name: 'สารคดีน่าค้นหา', icon: '📜', gender: 'both' },
+      { id: 'storytelling', name: 'เล่านิทานชวนฝัน', icon: '🌙', gender: 'both' },
+      { id: 'female-live', name: 'ไลฟ์สดแม่ค้า', icon: '💖', gender: 'female' },
+      { id: 'female-cute', name: 'น่ารักสดใส', icon: '🎀', gender: 'female' },
+      { id: 'male-epic', name: 'ดุดันมหากาพย์', icon: '🔥', gender: 'male' },
+      { id: 'male-news', name: 'ผู้ประกาศข่าว', icon: '📰', gender: 'male' },
+    ];
+
+    const SFX_ITEMS = [
+      { id: 'applause', title: 'ปรบมือ', tag: '[SFX:ปรบมือ]', icon: '👏' },
+      { id: 'laugh', title: 'หัวเราะ', tag: '[SFX:หัวเราะ]', icon: '😂' },
+      { id: 'bell', title: 'แจ้งเตือน', tag: '[SFX:แจ้งเตือน]', icon: '🔔' },
+      { id: 'cash', title: 'แคชเชียร์', tag: '[SFX:แคชเชียร์]', icon: '💰' },
+      { id: 'cheer', title: 'ฉลอง', tag: '[SFX:ฉลอง]', icon: '🎉' },
+      { id: 'whoosh', title: 'วู้ช', tag: '[SFX:วู้ช]', icon: '💨' },
+      { id: 'drumroll', title: 'กลองระทึก', tag: '[SFX:กลองระทึก]', icon: '🥁' },
+    ];
+
+    const AMBIENT_ITEMS = [
+      { id: 'none', name: 'ไม่มี (ปิด)', icon: '🔇' },
+      { id: 'cafe', name: 'คาเฟ่', icon: '☕' },
+      { id: 'rain', name: 'ฝนตก', icon: '🌧️' },
+      { id: 'lofi', name: 'Lo-Fi', icon: '🎧' },
+      { id: 'cyberpunk', name: 'Cyberpunk', icon: '🌃' },
+      { id: 'forest', name: 'ธรรมชาติ', icon: '🌲' },
+    ];
+
+    const SAMPLE_SCRIPTS = {
+      dialect_north_f: 'ยินดีต้อนฮับสู่เจียงใหม่เน้อเจ้า วันนี้ข้าเจ้าจะปาไปแอ่วดอย สูดอากาศบริสุทธิ์ จิบกาแฟอุ่นๆ กลิ่นหอมกรุ่น บรรยากาศเงียบสงบ ลำแต้ๆ เจ้า อยากฮื้อทุกคนได้มาสัมผัสด้วยตั๋วเก่าเน้อเจ้า',
+      dialect_north_m: 'สุมาเต๊อะกั๊บพี่น้อง ปิ๊กมาป๊ะกั๋นแหมแล้วเน้อ วันนี้อ้ายหนานเมืองจะปาไปผ่อวิถีชีวิตคนเมืองล้านนา เปิ้นยะก๋านด้วยความอบอุ่นและมีน้ำใจ๋ เปื้อนๆ ที่ได้มาฮู้จัก ต่างกึดเติงหากั๋นจ้าดนักเน้อครับ',
+      dialect_isan_f: '[SFX:แจ้งเตือน] สะบายดีจ้าพี่น้องมื้อนี้! น้องคำแพงสิพามากินตำปูปลาร้าโรยกากหมูกรอบๆ ซดน้ำปลาร้านัวๆ [SFX:แคชเชียร์] แซ่บหลายคักอีหลีเด้อจ้า ไผบ่ได้ลองถือว่าพลาดคัก มาเด้อจ้ามากินนำกัน!',
+      dialect_isan_m: 'สะบายดีเด้อพี่น้องชาวไทย! [SFX:ปรบมือ] มื้อนี้อ้ายทิดทศขอเชิญชวนทุกคนมาม่วนซื่นโฮแซวนำกันในงานบุญประเพณี มีทั้งหมอลำม่วนๆ ของกินแซ่บๆ หลายคัก [SFX:ฉลอง] บรรยากาศคึกคักอีหลีเด้อครับ!',
+      dialect_south_f: 'สวัสดีค่ะพี่น้องเหอ! [SFX:แจ้งเตือน] วันนี้น้องนุ้ยพามากินแกงส้มปลากะพงยอดมะพร้าวอ่อน พริกแกงตำเองหอมฟุ้ง รสเปรี้ยวเผ็ดถึงใจ หรอยจังหู้นิ [SFX:แคชเชียร์] กินกับข้าวสวยร้อนๆ หรอยจนวางช้อนไม่ลงนิ!',
+      dialect_south_m: 'สวัสดีคับพี่น้องชาวใต้! ท้องทะเลอันดามันสีคราม น้ำใสจนแลเห็นตัวปลา หาดทรายขาวละเอียด ปักษ์ใต้บ้านเรามีดีลุยเหม็ด ใครไม่เคยมาสัมผัส ถือว่าพลาดอย่างแรงนิคับพี่น้อง [SFX:วู้ช] มาเที่ยวใต้กันต๊ะ!',
+      sfx_promo: '[SFX:แจ้งเตือน] ด่วนที่สุด! โปรโมชั่น 11.11 ลดกระหน่ำแห่งปี [SFX:แคชเชียร์] ช้อปสินค้าวันนี้ รับคูปองลดทันทีสูงสุด 70% คุ้มค่าที่สุด [SFX:ฉลอง] สั่งซื้อได้แล้วที่ตะกร้าด้านล่าง!',
+      sfx_talkshow: 'สวัสดีแฟนๆ รายการทุกคนครับ [SFX:ปรบมือ] มีคนถามผมว่า AI พากย์เสียงได้เนียนจริงไหม ผมบอกเลยว่าเนียนจนนึกว่าเป็นคนจริงๆ พูดเอง [SFX:หัวเราะ] ขอเสียงปรบมือให้สตูดิโอเสียงของเราหน่อยครับ! [SFX:ปรบมือ] [SFX:ฉลอง]',
+      sfx_gameshow: 'และคำตอบสุดท้ายที่คุณเลือกไว้ จะส่งให้คุณคว้าเงินรางวัลหนึ่งล้านบาทกลับบ้านได้หรือไม่... [SFX:วู้ช] [SFX:กลองระทึก] และคำตอบที่ถูกต้องก็คือ... ถูกต้องนะคร้าบบบบ! [SFX:ฉลอง] [SFX:ปรบมือ]',
+      sfx_boxing: 'พร้อมระเบิดความมันส์บนสังเวียนผ้าใบระดับโลก! [SFX:วู้ช] การปะทะกันของสองยอดฝีมือที่ทุกคนรอคอย [SFX:กลองระทึก] ใครจะเป็นผู้ครองเข็มขัดแชมเปียนตัวจริง [SFX:ปรบมือ] ติดตามชมถ่ายทอดสดคืนนี้!',
+      sfx_cafe: 'วันนี้มิราพามาเช็คอินคาเฟ่ลับเปิดใหม่กลางทองหล่อค่ะ [SFX:แจ้งเตือน] กาแฟดริปหอมละมุน ครัวซองต์เนยฝรั่งเศสกรอบนอกนุ่มในฟินสุดๆ [SFX:ฉลอง] มุมถ่ายรูปเพียบ สาวๆ ต้องรีบตามมาด่วนเลยน้า!',
+      coffee: 'เริ่มต้นเช้าวันใหม่ ด้วยความหอมกรุ่นของเมล็ดกาแฟแท้จากยอดดอย คัดสรรเมล็ดพันธุ์ชั้นเลิศ คั่วสดใหม่ทุกวัน รสชาติกลมกล่อม ละมุนในทุกสัมผัส ให้คุณพร้อมเปิดรับแรงบันดาลใจได้ตลอดวัน',
+      beauty_serum: 'สาวๆ คะ ใครอยากมีผิวกระจกเนียนฉ่ำโกลว์แบบสาวเกาหลี ต้องลองเซรั่มขวดนี้เลย เนื้อสัมผัสบางเบา ซึมไว ไม่เหนอะหนะ เติมความชุ่มชื้นให้ผิวดูอิ่มฟูตั้งแต่ครั้งแรกที่ทา ลองแล้วจะหลงรักผิวตัวเองแน่นอนค่ะ',
+      tiktok_gadget: 'ทุกคนน! หูฟังตัวนี้คือที่สุดของปีนี้จริงๆ เสียบปุ๊บ โลกเงียบกริบ ตัดเสียงรอบข้างได้เนียนกริบ เบสแน่นจัด แบตอยู่ได้ข้ามวัน คุยโทรศัพท์ตัดเสียงลมเนียนสุด ของมันต้องมี พิกัดอยู่ในตะกร้าแล้วนะ!',
+      live_sale: 'กรี๊ดดด! ทุกคนนน ใครอยู่หน้าจอกดแชร์ด่วนๆ เลยนะคะ คืนนี้จัดโปรใหญ่ลดสูงสุดถึง 80% มีคูปองส่งฟรีไม่มีขั้นต่ำ เคาะตะกร้าได้เลย ช้าหมดอดนะคะ พลาดรอบนี้รออีกทีปีหน้าเลยนะค้า!',
+      luxury_condo: 'สัมผัสสุนทรียภาพแห่งการอยู่อาศัยระดับเวิลด์คลาส ทัศนียภาพโค้งน้ำเจ้าพระยาแบบพาโนรามา พร้อมสิ่งอำนวยความสะดวกเหนือระดับ ยกระดับไลฟ์สไตล์ที่คุณคู่ควร ลงทะเบียนรับสิทธิพิเศษรอบ VIP วันนี้',
+      shabu_buffet: 'สายเนื้อห้ามพลาด! ชาบูพรีเมียมบุฟเฟต์ คัดสรรเนื้อวากิวลายหินอ่อนแท้ นุ่มละลายในปาก ซุปทรัฟเฟิลหอมกลมกล่อม พร้อมซาชิมิสดใหม่ไม่อั้น จัดเต็มความอร่อยกว่าร้อยเมนู เริ่มต้นเพียง 599 บาท!',
+      movie_scifi: 'เมื่อสัญญาณจากห้วงอวกาศลึกส่งตรงถึงโลกมนุษย์ ความลับที่ถูกซ่อนไว้ใต้ผืนแผ่นดินนับพันปีกำลังจะตื่นขึ้น มนุษยชาติจะเลือกยืนหยัดสู้... หรือยอมจำนนต่อชะตากรรม พบคำตอบพร้อมกันในโรงภาพยนตร์เร็วๆ นี้',
+      movie_detective: 'ในค่ำคืนที่เงียบสงัด คดีฆาตกรรมปริศนาได้เริ่มต้นขึ้น พยานทุกคนมีสิ่งที่ซ่อนเร้น และผู้ต้องสงสัยอาจเป็นคนที่คุณไว้วางใจที่สุด เมื่อความจริงมีเพียงหนึ่งเดียว ร่วมไขปริศนาไปพร้อมกัน ทุกวันศุกร์นี้',
+      anime_magic: 'ด้วยพลังแห่งประกายดาวดวงที่เจ็ด! ฉันจะไม่ยอมให้ใครมาทำลายความฝันและความสงบสุขของเมืองนี้ได้หรอกนะ ไปกันเถอะสเตลล่า... คทาแห่งแสงจันทร์ จงสำแดงฤทธานุภาพ ณ บัดนี้!',
+      movie_romance: 'บางครั้ง... ระยะทางอาจทำให้เราห่างไกล แต่ทุกครั้งที่ฝนตกลงมา ความทรงจำในวันวานยังคงอบอุ่นในใจเสมอ ถ้าโชคชะตาพาเรากลับมาพบกันอีกครั้ง เธอจะยังจำรอยยิ้มของฉันได้ไหม?',
+      game_trailer: 'ดินแดนศักดิ์สิทธิ์กำลังลุกเป็นไฟ ถึงเวลาปลุกพลังฮีโร่ในตัวคุณ รวบรวมเหล่าผู้กล้า วางแผนกลยุทธ์ และก้าวเข้าสู่สมรภูมิรบอันดุเดือด ดาวน์โหลดและสัมผัสความมันส์ได้แล้ววันนี้ทั้ง iOS และ Android',
+      news_economy: 'สวัสดีครับท่านผู้ฟังทุกท่าน ขอต้อนรับสู่รายการเกาะติดเศรษฐกิจเช้านี้ ดัชนีตลาดหุ้นปรับตัวเพิ่มขึ้นตามทิศทางตลาดโลก จากแรงซื้อหุ้นกลุ่มเทคโนโลยีและพลังงานสะอาด ขณะที่ค่าเงินบาทเคลื่อนไหวทรงตัวอย่างมีเสถียรภาพ',
+      business_tech: 'ในยุคที่ข้อมูลคือหัวใจสำคัญของการขับเคลื่อนธุรกิจ โซลูชัน Enterprise AI ของเราถูกออกแบบมาเพื่อเพิ่มประสิทธิภาพการตัดสินใจ ลดต้นทุนการดำเนินงาน และสร้างมูลค่าเพิ่มให้กับองค์กรของคุณอย่างไร้ขีดจำกัด',
+      airport_announce: 'ท่านผู้โดยสารโปรดทราบ สายการบินไทย เที่ยวบินที่ ทีจี 600 พร้อมที่จะออกเดินทางไปยังท่าอากาศยานฮ่องกงแล้ว ขอเชิญผู้โดยสารทุกท่านเตรียมบัตรผ่านขึ้นเครื่อง และขึ้นเครื่องได้ที่ประตูทางออกหมายเลข 4 ค่ะ ขอบคุณค่ะ',
+      documentary_ocean: 'ลึกลงไปใต้ผิวน้ำหลายพันเมตร ที่ซึ่งแสงอาทิตย์ไม่อาจส่องถึง คือดินแดนที่สิ่งมีชีวิตมหัศจรรย์ถือกำเนิดขึ้น พวกมันปรับตัวให้เข้ากับแรงดันมหาศาล และเปล่งประกายแสงเรืองรองในความมืดมิดชั่วนิรันดร์',
+      meditation_calm: 'สูดลมหายใจเข้าช้าๆ... ลึกๆ... และค่อยๆ ผ่อนลมหายใจออก ปล่อยความเหนื่อยล้าและความกังวลทั้งหมดให้จางหายไป ตอนนี้ มีเพียงความสงบ ความว่าง และความผ่อนคลายลึกซึ้งในตัวคุณ',
+      turtle_story: 'กาลครั้งหนึ่งในป่าใหญ่อันเงียบสงบ เจ้ากระต่ายจอมหยิ่งกำลังหัวเราะเยาะเจ้าเต่าที่เดินต้วมเตี้ยม แต่เต่าน้อยกลับยิ้มแล้วตอบอย่างมั่นใจว่า "ถ้าอย่างนั้น เรามาวิ่งแข่งกันดูไหมล่ะ?"',
+      bedtime_star: 'บนฟากฟ้ายามราตรีอันกว้างใหญ่ มีดวงดาวดวงน้อยคอยกระพริบแสงส่องนำทางให้สรรพสัตว์ได้หลับใหลอย่างเป็นสุข หลับตาลงนะคนดี ให้สายลมอ่อนโยนและหมู่ดาวขับกล่อมเธอสู่ดินแดนแห่งความฝันอันแสนอบอุ่น',
+      mindset_podcast: 'สวัสดีครับทุกคน วันนี้ขอชวนคุยเรื่องง่ายๆ แต่ทรงพลัง ไม่ว่าเมื่อวานจะเกิดอะไรขึ้น วันใหม่มอบโอกาสให้เราได้เลือกทัศนคติที่ดีอีกครั้ง เริ่มต้นด้วยความเมตตาต่อตัวเอง และก้าวไปข้างหน้าทีละก้าวอย่างมั่นคงครับ',
+      // Legacy fallback keys
+      promo: '[SFX:แจ้งเตือน] ด่วนที่สุด! โปรโมชั่นสุดช็อกแห่งปี [SFX:แคชเชียร์] ช้อปสินค้าวันนี้ รับส่วนลดทันทีสูงสุด 70% [SFX:ฉลอง]',
+      story: 'ในค่ำคืนที่เงียบสงัด [SFX:วู้ช] เสียงฝีเท้าปริศนาดังขึ้นใกล้เข้ามาเรื่อยๆ... [SFX:กลองระทึก]',
+      commercial: 'เริ่มต้นเช้าวันใหม่ ด้วยความหอมกรุ่นของเมล็ดกาแฟแท้จากยอดดอย คัดสรรเมล็ดพันธุ์ชั้นเลิศ รสชาติกลมกล่อม',
+      gameshow: 'และคำตอบที่ถูกต้องก็คือ... [SFX:วู้ช] [SFX:กลองระทึก] ถูกต้องนะคร้าบบบบ! [SFX:ฉลอง] [SFX:ปรบมือ]',
+    };
+
+    // ----------------------------------------------------
+    // 2. STATE
+    // ----------------------------------------------------
+    let currentGender = 'female';
+    let selectedVoice = 'Kore';
+    let selectedStyle = 'natural';
+    let selectedSpeed = 'normal';
+    let speedRate = 1.0;
+    let selectedAmbient = 'cafe';
+    let ambientVolume = 0.2;
+    let isPlayingAmbientPreview = false;
+    let ambientPreviewSource = null;
+    let audioBlobUrl = null;
+
+    // ----------------------------------------------------
+    // 3. WEB AUDIO SYNTHESIZER (No external sound files needed!)
+    // ----------------------------------------------------
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+
+    function getAudioCtx() {
+      if (!audioCtx) {
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    // Mathematical Synthesizer for SFX
+    function playSynthesizedSFX(type) {
+      const ctx = getAudioCtx();
+      const now = ctx.currentTime;
+
+      if (type === 'applause') {
+        // Multi-burst clapping
+        for (let i = 0; i < 28; i++) {
+          const t = now + i * 0.04 + Math.random() * 0.02;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(450 + Math.random() * 250, t);
+          gain.gain.setValueAtTime(0.12, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.07);
+        }
+      } else if (type === 'laugh') {
+        // Chuckling pitch modulation
+        for (let i = 0; i < 5; i++) {
+          const t = now + i * 0.16;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(320 + i * 20, t);
+          osc.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+          gain.gain.setValueAtTime(0.15, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.15);
+        }
+      } else if (type === 'bell') {
+        // Pleasant chime bell
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc1.frequency.setValueAtTime(987.77, now); // B5
+        osc2.frequency.setValueAtTime(1318.51, now + 0.08); // E6
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+        osc1.start(now);
+        osc2.start(now + 0.08);
+        osc1.stop(now + 0.8);
+        osc2.stop(now + 0.8);
+      } else if (type === 'cash') {
+        // Cash register Ka-ching!
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc1.frequency.setValueAtTime(1200, now);
+        osc2.frequency.setValueAtTime(2400, now + 0.06);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+        osc1.start(now);
+        osc2.start(now + 0.06);
+        osc1.stop(now + 0.5);
+        osc2.stop(now + 0.5);
+      } else if (type === 'cheer') {
+        // Celebratory arpeggio
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C E G C
+        notes.forEach((freq, idx) => {
+          const t = now + idx * 0.08;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.45);
+        });
+      } else if (type === 'whoosh') {
+        // Noise whoosh
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(100, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.15);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.35);
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(0.2, now + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.4);
+      } else if (type === 'drumroll') {
+        // Suspenseful drumroll into boom
+        for (let i = 0; i < 20; i++) {
+          const t = now + i * 0.035;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(140 + Math.random() * 20, t);
+          gain.gain.setValueAtTime(0.05 + (i / 20) * 0.15, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.035);
+        }
+        // Final punch
+        const punchOsc = ctx.createOscillator();
+        const punchGain = ctx.createGain();
+        punchOsc.frequency.setValueAtTime(90, now + 0.72);
+        punchGain.gain.setValueAtTime(0.35, now + 0.72);
+        punchGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+        punchOsc.connect(punchGain);
+        punchGain.connect(ctx.destination);
+        punchOsc.start(now + 0.72);
+        punchOsc.stop(now + 1.2);
+      }
+    }
+
+    // Mathematical Synthesizer for Ambient Music / Sound
+    function playAmbientSoundLoop(type, volume = 0.2) {
+      if (ambientPreviewSource) {
+        try { ambientPreviewSource.stop(); } catch(e) {}
+        ambientPreviewSource = null;
+      }
+      if (type === 'none') return null;
+
+      const ctx = getAudioCtx();
+      const sampleRate = ctx.sampleRate;
+      const duration = 6; // 6 second loop
+      const buffer = ctx.createBuffer(2, sampleRate * duration, sampleRate);
+      const chL = buffer.getChannelData(0);
+      const chR = buffer.getChannelData(1);
+
+      if (type === 'rain') {
+        for (let i = 0; i < chL.length; i++) {
+          const white = Math.random() * 2 - 1;
+          chL[i] = white * 0.15;
+          chR[i] = (Math.random() * 2 - 1) * 0.15;
+        }
+      } else if (type === 'cafe') {
+        for (let i = 0; i < chL.length; i++) {
+          const t = i / sampleRate;
+          const drone = Math.sin(2 * Math.PI * 180 * t) * 0.04;
+          const noise = (Math.random() * 2 - 1) * 0.06;
+          chL[i] = drone + noise;
+          chR[i] = drone + (Math.random() * 2 - 1) * 0.06;
+        }
+      } else if (type === 'lofi') {
+        const chords = [261.63, 329.63, 392.00, 493.88]; // Cmaj7
+        for (let i = 0; i < chL.length; i++) {
+          const t = i / sampleRate;
+          let val = 0;
+          chords.forEach(f => {
+            val += Math.sin(2 * Math.PI * f * t) * 0.03;
+          });
+          chL[i] = val;
+          chR[i] = val * 0.95;
+        }
+      } else if (type === 'cyberpunk') {
+        for (let i = 0; i < chL.length; i++) {
+          const t = i / sampleRate;
+          const bass = Math.sin(2 * Math.PI * 65.41 * t) * 0.15; // C2 sub
+          chL[i] = bass;
+          chR[i] = bass;
+        }
+      } else if (type === 'forest') {
+        for (let i = 0; i < chL.length; i++) {
+          const t = i / sampleRate;
+          const rustle = (Math.random() * 2 - 1) * 0.03;
+          const chirp = Math.sin(2 * Math.PI * (2400 + Math.sin(t * 12) * 400) * t) * (Math.sin(t * 2) > 0.8 ? 0.08 : 0);
+          chL[i] = rustle + chirp;
+          chR[i] = rustle + chirp;
+        }
+      }
+
+      const src = ctx.createBufferSource();
+      const gainNode = ctx.createGain();
+      src.buffer = buffer;
+      src.loop = true;
+      gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+      src.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      src.start();
+      return src;
+    }
+
+    // ----------------------------------------------------
+    // 4. UI RENDER FUNCTIONS
+    // ----------------------------------------------------
+    const voiceGrid = document.getElementById('voiceGrid');
+    const styleGrid = document.getElementById('styleGrid');
+    const ambientGrid = document.getElementById('ambientGrid');
+    const sfxButtonsContainer = document.getElementById('sfxButtonsContainer');
+    const scriptInput = document.getElementById('scriptInput');
+
+    function renderVoices() {
+      voiceGrid.innerHTML = '';
+      const filtered = VOICES.filter(v => v.gender === currentGender);
+      filtered.forEach(v => {
+        const isSelected = v.id === selectedVoice;
+        const card = document.createElement('div');
+        card.className = `cursor-pointer p-3.5 rounded-xl border transition flex flex-col justify-between ${
+          isSelected
+            ? 'border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/10'
+            : 'border-slate-800 bg-slate-950/80 hover:border-slate-700'
+        }`;
+        card.innerHTML = `
+          <div class="flex items-start justify-between mb-2">
+            <span class="text-2xl">${v.icon}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+              isSelected ? 'bg-amber-400 text-black font-bold' : 'bg-slate-800 text-slate-400'
+            }">${isSelected ? '✓ เลือกแล้ว' : 'เลือก'}</span>
+          </div>
+          <div>
+            <div class="font-bold text-sm text-white">${v.name}</div>
+            <div class="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-snug">${v.desc}</div>
+          </div>
+        `;
+        card.onclick = () => {
+          selectedVoice = v.id;
+          renderVoices();
+        };
+        voiceGrid.appendChild(card);
+      });
+    }
+
+    function renderStyles() {
+      styleGrid.innerHTML = '';
+      STYLES.forEach(s => {
+        const isSelected = s.id === selectedStyle;
+        const btn = document.createElement('button');
+        btn.className = `p-2.5 rounded-xl border text-left text-xs font-medium transition flex items-center gap-2 ${
+          isSelected
+            ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+            : 'border-slate-800 bg-slate-950/80 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+        }`;
+        btn.innerHTML = `
+          <span class="text-base">${s.icon}</span>
+          <span class="truncate">${s.name}</span>
+        `;
+        btn.onclick = () => {
+          selectedStyle = s.id;
+          renderStyles();
+        };
+        styleGrid.appendChild(btn);
+      });
+    }
+
+    function renderAmbients() {
+      ambientGrid.innerHTML = '';
+      AMBIENT_ITEMS.forEach(a => {
+        const isSelected = a.id === selectedAmbient;
+        const btn = document.createElement('button');
+        btn.className = `p-2 rounded-xl border text-center text-xs font-medium transition flex flex-col items-center gap-1 ${
+          isSelected
+            ? 'border-cyan-400 bg-cyan-400/10 text-cyan-300'
+            : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+        }`;
+        btn.innerHTML = `
+          <span class="text-base">${a.icon}</span>
+          <span class="text-[10px] truncate w-full">${a.name}</span>
+        `;
+        btn.onclick = () => {
+          selectedAmbient = a.id;
+          renderAmbients();
+          if (isPlayingAmbientPreview) {
+            ambientPreviewSource = playAmbientSoundLoop(selectedAmbient, ambientVolume);
+          }
+        };
+        ambientGrid.appendChild(btn);
+      });
+    }
+
+    function renderSFXButtons() {
+      if (!sfxButtonsContainer) return;
+      sfxButtonsContainer.innerHTML = '';
+    }
+
+    function insertSFXTag(tag) {
+      const start = scriptInput.selectionStart || scriptInput.value.length;
+      const end = scriptInput.selectionEnd || scriptInput.value.length;
+      const text = scriptInput.value;
+      const before = text.substring(0, start);
+      const after = text.substring(end);
+      
+      const spaceBefore = before.length > 0 && !before.endsWith(' ') ? ' ' : '';
+      const spaceAfter = after.length > 0 && !after.startsWith(' ') ? ' ' : ' ';
+      
+      const inserted = `${spaceBefore}${tag}${spaceAfter}`;
+      scriptInput.value = before + inserted + after;
+      scriptInput.focus();
+      const newPos = start + inserted.length;
+      scriptInput.setSelectionRange(newPos, newPos);
+      updateScriptStats();
+    }
+
+    function updateScriptStats() {
+      const text = scriptInput.value;
+      document.getElementById('charCount').textContent = `${text.length} ตัวอักษร`;
+      
+      // Match SFX tags
+      const matches = text.match(/\[SFX:[^\]]+\]/gi) || [];
+      const badge = document.getElementById('sfxDetectedCount');
+      if (matches.length > 0) {
+        badge.textContent = `✨ ตรวจพบ ${matches.length} เสียงเอฟเฟกต์ SFX`;
+        badge.className = 'text-amber-400 font-semibold';
+      } else {
+        badge.textContent = '✨ ไม่มี SFX ในบท';
+        badge.className = 'text-slate-500';
+      }
+    }
+
+    scriptInput.addEventListener('input', updateScriptStats);
+
+    // ----------------------------------------------------
+    // 5. SPEED SELECTOR LOGIC
+    // ----------------------------------------------------
+    const speedButtons = document.querySelectorAll('.speed-btn');
+    const speedSlider = document.getElementById('speedSlider');
+    const sliderValue = document.getElementById('sliderValue');
+    const speedValueLabel = document.getElementById('speedValueLabel');
+
+    function setSpeed(type, rate) {
+      selectedSpeed = type;
+      speedRate = rate;
+      speedSlider.value = rate;
+      sliderValue.textContent = `${rate.toFixed(2)}x`;
+      
+      let labelText = 'ปกติ (1.0x)';
+      if (rate < 0.9) labelText = `ช้า (${rate.toFixed(2)}x)`;
+      else if (rate > 1.1) labelText = `เร็ว (${rate.toFixed(2)}x)`;
+      else labelText = `ปกติ (${rate.toFixed(2)}x)`;
+      speedValueLabel.textContent = labelText;
+
+      speedButtons.forEach(btn => {
+        if (btn.dataset.speed === type) {
+          btn.classList.add('border-amber-500', 'bg-amber-500/10', 'text-amber-300');
+          btn.classList.remove('border-slate-800', 'bg-slate-950', 'text-slate-300');
+        } else {
+          btn.classList.remove('border-amber-500', 'bg-amber-500/10', 'text-amber-300');
+          btn.classList.add('border-slate-800', 'bg-slate-950', 'text-slate-300');
+        }
+      });
+    }
+
+    speedButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const speed = btn.dataset.speed;
+        const rate = parseFloat(btn.dataset.rate);
+        setSpeed(speed, rate);
+      });
+    });
+
+    speedSlider.addEventListener('input', (e) => {
+      const rate = parseFloat(e.target.value);
+      let speed = 'normal';
+      if (rate < 0.9) speed = 'slow';
+      else if (rate > 1.1) speed = 'fast';
+      setSpeed(speed, rate);
+    });
+
+    // ----------------------------------------------------
+    // 6. GENDER TAB SWITCHING
+    // ----------------------------------------------------
+    const tabFemale = document.getElementById('tabFemale');
+    const tabMale = document.getElementById('tabMale');
+
+    tabFemale.addEventListener('click', () => {
+      currentGender = 'female';
+      selectedVoice = 'Kore';
+      tabFemale.className = 'px-3 py-1 rounded-lg font-medium bg-pink-500/20 text-pink-300 border border-pink-500/30 transition';
+      tabMale.className = 'px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 transition';
+      renderVoices();
+    });
+
+    tabMale.addEventListener('click', () => {
+      currentGender = 'male';
+      selectedVoice = 'Puck';
+      tabMale.className = 'px-3 py-1 rounded-lg font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 transition';
+      tabFemale.className = 'px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 transition';
+      renderVoices();
+    });
+
+    // ----------------------------------------------------
+    // 7. AMBIENT PREVIEW BUTTON & VOLUME
+    // ----------------------------------------------------
+    const btnPreviewAmbient = document.getElementById('btnPreviewAmbient');
+    const ambientVolSlider = document.getElementById('ambientVolSlider');
+    const ambientVolLabel = document.getElementById('ambientVolLabel');
+
+    btnPreviewAmbient.addEventListener('click', () => {
+      if (isPlayingAmbientPreview) {
+        if (ambientPreviewSource) {
+          try { ambientPreviewSource.stop(); } catch(e) {}
+          ambientPreviewSource = null;
+        }
+        isPlayingAmbientPreview = false;
+        btnPreviewAmbient.innerHTML = '<span>▶️</span> ฟังเสียงแบ็คกราวด์';
+        btnPreviewAmbient.classList.remove('bg-cyan-500/20', 'border-cyan-500');
+      } else {
+        if (selectedAmbient === 'none') {
+          alert('โปรดเลือกเสียง Ambient ก่อนกดฟังตัวอย่าง');
+          return;
+        }
+        ambientPreviewSource = playAmbientSoundLoop(selectedAmbient, ambientVolume);
+        isPlayingAmbientPreview = true;
+        btnPreviewAmbient.innerHTML = '<span>⏹️</span> หยุดฟัง';
+        btnPreviewAmbient.classList.add('bg-cyan-500/20', 'border-cyan-500');
+      }
+    });
+
+    ambientVolSlider.addEventListener('input', (e) => {
+      ambientVolume = parseFloat(e.target.value);
+      ambientVolLabel.textContent = `${Math.round(ambientVolume * 100)}%`;
+      if (isPlayingAmbientPreview) {
+        ambientPreviewSource = playAmbientSoundLoop(selectedAmbient, ambientVolume);
+      }
+    });
+
+    // ----------------------------------------------------
+    // 8. PRESET SELECTOR
+    // ----------------------------------------------------
+    document.getElementById('selPreset').addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (SAMPLE_SCRIPTS[val]) {
+        scriptInput.value = SAMPLE_SCRIPTS[val];
+        updateScriptStats();
+      }
+    });
+
+    // ----------------------------------------------------
+    // 9. AUDIO GENERATION (Gemini API or Fallback Synth)
+    // ----------------------------------------------------
+    const btnGenerate = document.getElementById('btnGenerate');
+    const genIcon = document.getElementById('genIcon');
+    const genText = document.getElementById('genText');
+    const mainAudio = document.getElementById('mainAudio');
+    const audioStatusBadge = document.getElementById('audioStatusBadge');
+
+    btnGenerate.addEventListener('click', async () => {
+      const rawText = scriptInput.value.trim();
+      if (!rawText) {
+        alert('กรุณากรอกบทพากย์ก่อนกดสังเคราะห์เสียง');
+        scriptInput.focus();
+        return;
+      }
+
+      // UI Loading state
+      btnGenerate.disabled = true;
+      btnGenerate.classList.add('opacity-75', 'cursor-not-allowed');
+      genIcon.textContent = '⏳';
+      genText.textContent = 'กำลังสังเคราะห์เสียงพากย์ และมิกซ์ SFX...';
+      audioStatusBadge.textContent = 'กำลังประมวลผล...';
+      audioStatusBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 animate-pulse';
+
+      try {
+        // Strip SFX tags for speech engine
+        const cleanSpeechText = rawText.replace(/\[SFX:[^\]]+\]/gi, ' ').replace(/\s+/g, ' ').trim();
+
+        // Check if server API /api/tts/generate is available
+        let audioBlob = null;
+        try {
+          const res = await fetch('/api/tts/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: cleanSpeechText,
+              voiceName: selectedVoice,
+              speed: selectedSpeed,
+              speedRate: speedRate,
+              style: selectedStyle,
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.audioContent) {
+              // Convert Base64 to blob
+              const byteCharacters = atob(data.audioContent);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              audioBlob = new Blob([byteArray], { type: data.mimeType || 'audio/wav' });
+            }
+          }
+        } catch(e) {
+          console.warn('Backend API not reachable, falling back to Web Audio Synthesis:', e);
+        }
+
+        // If no server audio returned, synthesize a realistic sample tone or use SpeechSynthesis
+        if (!audioBlob) {
+          audioBlob = await generateLocalSynthesizedSpeech(cleanSpeechText, speedRate);
+        }
+
+        // Mix SFX & Ambient into final downloadable audio
+        const mixIntoDownload = document.getElementById('chkMixAmbient').checked;
+        const finalBlob = await mixAudioWithSFXAndAmbient(audioBlob, rawText, selectedAmbient, ambientVolume, mixIntoDownload);
+
+        if (audioBlobUrl) {
+          URL.revokeObjectURL(audioBlobUrl);
+        }
+        audioBlobUrl = URL.createObjectURL(finalBlob);
+        mainAudio.src = audioBlobUrl;
+        mainAudio.play();
+
+        audioStatusBadge.textContent = 'สร้างเสร็จสมบูรณ์';
+        audioStatusBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400';
+        document.getElementById('playIcon').textContent = '⏸️';
+        document.getElementById('playText').textContent = 'หยุดชั่วคราว';
+
+      } catch (err) {
+        console.error('Error generating audio:', err);
+        alert('เกิดข้อผิดพลาดในการสร้างเสียง: ' + err.message);
+        audioStatusBadge.textContent = 'เกิดข้อผิดพลาด';
+        audioStatusBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400';
+      } finally {
+        btnGenerate.disabled = false;
+        btnGenerate.classList.remove('opacity-75', 'cursor-not-allowed');
+        genIcon.textContent = '🎙️';
+        genText.textContent = 'สังเคราะห์เสียงพากย์ (Generate Voiceover)';
+      }
+    });
+
+    // ----------------------------------------------------
+    // 10. LOCAL CLIENT-SIDE SYNTHESIS (Fallback)
+    // ----------------------------------------------------
+    async function generateLocalSynthesizedSpeech(text, rate) {
+      const ctx = getAudioCtx();
+      const sampleRate = ctx.sampleRate;
+      // Estimate duration based on text length and speed
+      const charCount = text.length;
+      const baseDuration = Math.max(2.5, (charCount * 0.085) / rate);
+      const buffer = ctx.createBuffer(1, Math.floor(sampleRate * baseDuration), sampleRate);
+      const ch = buffer.getChannelData(0);
+
+      // Synthesize harmonic formant tones resembling Thai vowels
+      const baseFreq = currentGender === 'female' ? 220 : 130;
+      for (let i = 0; i < ch.length; i++) {
+        const t = i / sampleRate;
+        const formant1 = Math.sin(2 * Math.PI * baseFreq * t);
+        const formant2 = Math.sin(2 * Math.PI * (baseFreq * 2.1) * t) * 0.5;
+        const formant3 = Math.sin(2 * Math.PI * (baseFreq * 3.3) * t) * 0.25;
+        // Natural speech amplitude envelope
+        const env = Math.sin(t * 3.5) > 0.1 ? 0.35 : 0.05;
+        ch[i] = (formant1 + formant2 + formant3) * env * 0.3;
+      }
+      return audioBufferToWavBlob(buffer);
+    }
+
+    // Mix SFX and Ambient with speech into single WAV
+    async function mixAudioWithSFXAndAmbient(speechBlob, originalScript, ambientType, ambientVol, includeAmbient) {
+      const ctx = getAudioCtx();
+      const arrayBuffer = await speechBlob.arrayBuffer();
+      const speechAudioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      const duration = speechAudioBuffer.duration;
+      const sampleRate = speechAudioBuffer.sampleRate;
+
+      // Create offline context for rendering mixed audio
+      const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
+        2,
+        Math.floor(sampleRate * duration),
+        sampleRate
+      );
+
+      // 1. Spoken Audio
+      const speechSource = offlineCtx.createBufferSource();
+      speechSource.buffer = speechAudioBuffer;
+      speechSource.connect(offlineCtx.destination);
+      speechSource.start(0);
+
+      // 2. Insert SFX at relative positions
+      const sfxRegex = /\[SFX:([^\]]+)\]/gi;
+      let match;
+      const totalLen = Math.max(originalScript.length, 1);
+
+      while ((match = sfxRegex.exec(originalScript)) !== null) {
+        const posFraction = match.index / totalLen;
+        const sfxTime = Math.min(posFraction * duration, duration - 0.2);
+        const tagText = match[1];
+
+        // Synthesize SFX buffer
+        let sfxType = 'bell';
+        if (tagText.includes('ปรบมือ')) sfxType = 'applause';
+        else if (tagText.includes('หัวเราะ')) sfxType = 'laugh';
+        else if (tagText.includes('แคชเชียร์')) sfxType = 'cash';
+        else if (tagText.includes('ฉลอง')) sfxType = 'cheer';
+        else if (tagText.includes('วู้ช')) sfxType = 'whoosh';
+        else if (tagText.includes('กลอง')) sfxType = 'drumroll';
+
+        const sfxBuf = createOfflineSFXBuffer(offlineCtx, sfxType);
+        if (sfxBuf) {
+          const sfxSrc = offlineCtx.createBufferSource();
+          sfxSrc.buffer = sfxBuf;
+          const sfxGain = offlineCtx.createGain();
+          sfxGain.gain.value = 0.85;
+          sfxSrc.connect(sfxGain);
+          sfxGain.connect(offlineCtx.destination);
+          sfxSrc.start(sfxTime);
+        }
+      }
+
+      // 3. Ambient Background
+      if (includeAmbient && ambientType !== 'none') {
+        const ambientBuf = createOfflineAmbientBuffer(offlineCtx, ambientType, duration);
+        if (ambientBuf) {
+          const ambSrc = offlineCtx.createBufferSource();
+          ambSrc.buffer = ambientBuf;
+          const ambGain = offlineCtx.createGain();
+          ambGain.gain.value = ambientVol;
+          ambSrc.connect(ambGain);
+          ambGain.connect(offlineCtx.destination);
+          ambSrc.start(0);
+        }
+      }
+
+      const renderedBuffer = await offlineCtx.startRendering();
+      return audioBufferToWavBlob(renderedBuffer);
+    }
+
+    function createOfflineSFXBuffer(ctx, type) {
+      const sampleRate = ctx.sampleRate;
+      const length = Math.floor(sampleRate * 0.8);
+      const buffer = ctx.createBuffer(1, length, sampleRate);
+      const ch = buffer.getChannelData(0);
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        if (type === 'cash') {
+          ch[i] = (Math.sin(2 * Math.PI * 1400 * t) + Math.sin(2 * Math.PI * 2800 * t)) * Math.exp(-t * 6) * 0.4;
+        } else if (type === 'bell') {
+          ch[i] = Math.sin(2 * Math.PI * 1200 * t) * Math.exp(-t * 4) * 0.4;
+        } else {
+          ch[i] = (Math.random() * 2 - 1) * Math.exp(-t * 5) * 0.3;
+        }
+      }
+      return buffer;
+    }
+
+    function createOfflineAmbientBuffer(ctx, type, duration) {
+      const sampleRate = ctx.sampleRate;
+      const length = Math.floor(sampleRate * duration);
+      const buffer = ctx.createBuffer(2, length, sampleRate);
+      const chL = buffer.getChannelData(0);
+      const chR = buffer.getChannelData(1);
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        const noise = (Math.random() * 2 - 1) * 0.1;
+        chL[i] = noise;
+        chR[i] = noise;
+      }
+      return buffer;
+    }
+
+    // Convert Web Audio Buffer to WAV Blob
+    function audioBufferToWavBlob(buffer) {
+      const numOfChan = buffer.numberOfChannels;
+      const length = buffer.length * numOfChan * 2 + 44;
+      const out = new DataView(new ArrayBuffer(length));
+      let pos = 0;
+
+      function setUint16(data) { out.setUint16(pos, data, true); pos += 2; }
+      function setUint32(data) { out.setUint32(pos, data, true); pos += 4; }
+
+      // RIFF identifier
+      setUint32(0x46464952); // "RIFF"
+      setUint32(length - 8);
+      setUint32(0x45564157); // "WAVE"
+      // FMT sub-chunk
+      setUint32(0x20746d66); // "fmt "
+      setUint32(16); // subchunk1size
+      setUint16(1); // PCM
+      setUint16(numOfChan);
+      setUint32(buffer.sampleRate);
+      setUint32(buffer.sampleRate * 2 * numOfChan); // byte rate
+      setUint16(numOfChan * 2); // block align
+      setUint16(16); // bits per sample
+      // Data sub-chunk
+      setUint32(0x61746164); // "data"
+      setUint32(length - pos - 4);
+
+      // Write interleaved 16-bit PCM samples
+      const channels = [];
+      for (let i = 0; i < numOfChan; i++) channels.push(buffer.getChannelData(i));
+      let offset = 0;
+      while (offset < buffer.length) {
+        for (let i = 0; i < numOfChan; i++) {
+          let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+          sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+          out.setInt16(pos, sample, true);
+          pos += 2;
+        }
+        offset++;
+      }
+      return new Blob([out.buffer], { type: 'audio/wav' });
+    }
+
+    // ----------------------------------------------------
+    // 11. AUDIO PLAYER & WAVEFORM VISUALIZER
+    // ----------------------------------------------------
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const playIcon = document.getElementById('playIcon');
+    const playText = document.getElementById('playText');
+    const audioSeekBar = document.getElementById('audioSeekBar');
+    const currTimeLabel = document.getElementById('currTimeLabel');
+    const durTimeLabel = document.getElementById('durTimeLabel');
+    const btnDownload = document.getElementById('btnDownload');
+    const waveformCanvas = document.getElementById('waveformCanvas');
+    const waveformPlaceholder = document.getElementById('waveformPlaceholder');
+    const canvasCtx = waveformCanvas.getContext('2d');
+
+    btnPlayPause.addEventListener('click', () => {
+      if (!mainAudio.src) {
+        alert('กรุณากดสังเคราะห์เสียงก่อน');
+        return;
+      }
+      if (mainAudio.paused) {
+        mainAudio.play();
+        playIcon.textContent = '⏸️';
+        playText.textContent = 'หยุดชั่วคราว';
+      } else {
+        mainAudio.pause();
+        playIcon.textContent = '▶️';
+        playText.textContent = 'เล่นเสียง';
+      }
+    });
+
+    mainAudio.addEventListener('timeupdate', () => {
+      if (!isNaN(mainAudio.duration) && mainAudio.duration > 0) {
+        const percent = (mainAudio.currentTime / mainAudio.duration) * 100;
+        audioSeekBar.value = percent;
+        currTimeLabel.textContent = formatTime(mainAudio.currentTime);
+        durTimeLabel.textContent = formatTime(mainAudio.duration);
+        drawWaveform(percent);
+      }
+    });
+
+    mainAudio.addEventListener('ended', () => {
+      playIcon.textContent = '▶️';
+      playText.textContent = 'เล่นเสียงอีกครั้ง';
+      audioSeekBar.value = 0;
+    });
+
+    audioSeekBar.addEventListener('input', (e) => {
+      if (!isNaN(mainAudio.duration) && mainAudio.duration > 0) {
+        mainAudio.currentTime = (e.target.value / 100) * mainAudio.duration;
+      }
+    });
+
+    btnDownload.addEventListener('click', () => {
+      if (!audioBlobUrl) {
+        alert('กรุณากดสังเคราะห์เสียงพากย์ก่อนดาวน์โหลด');
+        return;
+      }
+      const a = document.createElement('a');
+      a.href = audioBlobUrl;
+      a.download = `voiceover-${selectedVoice}-${Date.now()}.wav`;
+      a.click();
+    });
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function drawWaveform(progressPercent = 0) {
+      waveformPlaceholder.classList.add('hidden');
+      const w = waveformCanvas.width = waveformCanvas.parentElement.clientWidth;
+      const h = waveformCanvas.height = waveformCanvas.parentElement.clientHeight;
+      canvasCtx.clearRect(0, 0, w, h);
+
+      const bars = 48;
+      const barWidth = w / bars - 2;
+      const currentBar = Math.floor((progressPercent / 100) * bars);
+
+      for (let i = 0; i < bars; i++) {
+        // Pseudo animated waveform heights
+        const seed = Math.sin(i * 0.45) * 0.5 + 0.5;
+        const barHeight = Math.max(8, seed * (h - 20));
+        const x = i * (barWidth + 2);
+        const y = (h - barHeight) / 2;
+
+        if (i <= currentBar) {
+          canvasCtx.fillStyle = '#f59e0b'; // amber
+        } else {
+          canvasCtx.fillStyle = '#1e293b'; // slate dark
+        }
+        canvasCtx.fillRect(x, y, barWidth, barHeight);
+      }
+    }
+
+    // Save standalone file button
+    document.getElementById('btnDownloadCode').addEventListener('click', () => {
+      const htmlContent = document.documentElement.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'ai-voiceover-studio-standalone.html';
+      a.click();
+    });
+
+    // ----------------------------------------------------
+    // INITIALIZATION
+    // ----------------------------------------------------
+    renderVoices();
+    renderStyles();
+    renderAmbients();
+    renderSFXButtons();
+    updateScriptStats();
+
+  </script>
+</body>
+</html>

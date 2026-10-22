@@ -1,0 +1,6 @@
+{
+  "name": "AI Voiceover Studio - ห้องพากย์เสียง AI",
+  "description": "สตูดิโอสร้างเสียงพากย์ด้วย AI ปรับระดับเสียง อารมณ์ และความเร็ว (ช้า / ปกติ / เร็ว) พร้อมระบบสร้างสคริปต์อัตโนมัติ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
