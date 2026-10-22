@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StylePreset, VoiceName } from '../types/voice';
-import { STYLE_PRESETS } from '../data/presets';
+import { STYLE_PRESETS, VOICES } from '../data/presets';
 import { Palette, ChevronDown, Check, Sparkles, SlidersHorizontal, Heart, ShieldAlert } from 'lucide-react';
 
 interface StyleSelectorProps {
@@ -51,9 +51,22 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
   const handleSelectStyle = (preset: StylePreset) => {
     onStyleChange(preset.id);
     setIsOpen(false);
-    // If user picks a female style and current voice is male, recommend or auto-switch to Kore
-    if (preset.category === 'female' && currentVoice && currentVoice !== 'Kore' && onSelectVoice) {
-      onSelectVoice('Kore');
+
+    // Only adjust voice if user selected a female-specific style AND the currently active voice is male,
+    // preserving the selected region (Northern -> Northern female, Isan -> Isan female, Southern -> Southern female)
+    if (preset.category === 'female' && currentVoice && onSelectVoice) {
+      const voiceObj = VOICES.find((v) => v.id === currentVoice);
+      if (voiceObj && voiceObj.gender === 'male') {
+        if (voiceObj.region === 'northern') {
+          onSelectVoice('Lanna_Female');
+        } else if (voiceObj.region === 'isan') {
+          onSelectVoice('Isan_Female');
+        } else if (voiceObj.region === 'southern') {
+          onSelectVoice('Southern_Female');
+        } else {
+          onSelectVoice('Kore');
+        }
+      }
     }
   };
 

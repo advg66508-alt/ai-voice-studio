@@ -87,15 +87,26 @@ export const DialectSelector: React.FC<DialectSelectorProps> = ({
 
     const targetGender = chosenVoice.gender === 'male' ? 'male' : 'female';
 
-    // Auto translate current script text to the new region immediately!
-    if (currentScriptText.trim()) {
-      const adapted = translateCentralToDialect(currentScriptText, newRegion, targetGender);
-      onApplyTranslatedScript(adapted.translatedText);
-      setJustAdaptedRegion(REGIONAL_METAS[newRegion].nameThai);
-      setTimeout(() => setJustAdaptedRegion(null), 3500);
-    } else {
+    // If text is empty or is the default welcome greeting, set the region's authentic sample greeting
+    const isDefaultWelcome =
+      !currentScriptText.trim() ||
+      currentScriptText.includes('ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI') ||
+      currentScriptText.includes('สุมาเต๊อะกั๊บ') ||
+      currentScriptText.includes('สวัสดีเจ้า ยินดีต้อนฮับสู่เจียงใหม่') ||
+      currentScriptText.includes('สะบายดีเด้อครับพี่น้อง') ||
+      currentScriptText.includes('สวัสดีจ้าพี่น้อง มาพ้อกับน้องคำแพง') ||
+      currentScriptText.includes('สวัสดีคับพี่น้องชาวใต้') ||
+      currentScriptText.includes('สวัสดีค่ะพี่น้อง วันนี้น้องนุ้ยมาแหลง');
+
+    if (isDefaultWelcome) {
       const defaultScript = getDefaultScriptForRegionAndGender(newRegion, targetGender);
       onApplyTranslatedScript(defaultScript);
+      setJustAdaptedRegion(REGIONAL_METAS[newRegion].nameThai);
+      setTimeout(() => setJustAdaptedRegion(null), 3000);
+    } else {
+      // User typed custom text: keep it intact! Show toast indicating voice is selected
+      setJustAdaptedRegion(`เลือกสำเนียง ${REGIONAL_METAS[newRegion].nameThai} เรียบร้อย (คงข้อความที่คุณพิมพ์ไว้)`);
+      setTimeout(() => setJustAdaptedRegion(null), 3000);
     }
   };
 

@@ -187,18 +187,10 @@ export default function App() {
     const stylePreset = STYLE_PRESETS.find((s) => s.id === selectedStyleId);
     const stylePrompt = customStyleText || stylePreset?.promptInstruction || 'Clear, high quality voiceover';
 
-    // 1. Determine spoken script text (Auto-adapt Central to Dialect if enabled)
-    let textToVoice = text.trim();
-    if (!isMultiSpeaker && autoTranslateEnabled && currentRegion !== 'central') {
-      const dialectAdapted = translateCentralToDialect(
-        text.trim(),
-        currentRegion,
-        currentVoiceObj.gender === 'male' ? 'male' : 'female'
-      );
-      textToVoice = dialectAdapted.translatedText;
-    }
+    // 1. Spoken script text: Strictly speak what the user typed in the text area word-for-word!
+    const textToVoice = text.trim();
 
-    // Helper: Execute High-Speed client-side synthesis fallback
+    // Helper: Execute High-Speed client-side synthesis fallback when explicitly requested
     const executeFallbackSynth = async (noticeMsg: string) => {
       try {
         setQuotaNotice(noticeMsg);
@@ -287,20 +279,18 @@ export default function App() {
 
       const data = await response.json();
 
-      // Check if Gemini API returned quota exhaustion
+      // Check if Gemini API returned quota exhaustion or error
       if (data.quotaExceeded || data.fallback) {
-        await executeFallbackSynth(
-          'โควตา Gemini TTS ของวันนี้เต็ม (Free Tier จำกัด 10 ครั้ง/วัน) — ระบบสลับมาสร้างเสียงพากย์ด้วย High-Speed Engine ให้ทันที คุณสามารถฟัง มิกซ์เพลง และดาวน์โหลด WAV ได้ตามปกติ!'
+        setErrorMessage(
+          data.message || 'โควตา Gemini TTS ของวันนี้เต็ม กรุณารอสักครู่หรือลองใหม่อีกครั้ง'
         );
+        setIsGenerating(false);
         return;
       }
 
       if (!response.ok) {
-        // Fallback gracefully on any API error rather than crashing
-        console.warn('API returned error, falling back to local synthesizer:', data.error);
-        await executeFallbackSynth(
-          'ระบบสลับมาใช้ High-Speed Speech Engine ให้โดยอัตโนมัติ เพื่อให้สร้างเสียงพากย์ได้อย่างต่อเนื่อง'
-        );
+        setErrorMessage(data.error || 'เกิดข้อผิดพลาดในการสร้างเสียงพากย์ กรุณาลองใหม่อีกครั้ง');
+        setIsGenerating(false);
         return;
       }
 
@@ -357,10 +347,8 @@ export default function App() {
         setHistory((prev) => [newClip, ...prev]);
       }
     } catch (err: any) {
-      console.warn('TTS Generation Exception, using fallback engine:', err);
-      await executeFallbackSynth(
-        'สลับไปใช้ระบบสังเคราะห์เสียง High-Speed Engine ให้เรียบร้อย สามารถฟัง มิกซ์เพลง และดาวน์โหลดได้ตามปกติ'
-      );
+      console.error('TTS Generation Exception:', err);
+      setErrorMessage(err?.message || 'ไม่สามารถเชื่อมต่อระบบสร้างเสียงพากย์ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง');
     } finally {
       setIsGenerating(false);
     }

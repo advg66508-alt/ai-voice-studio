@@ -120,7 +120,10 @@ app.post('/api/tts/generate', async (req, res) => {
 
     const pacingInstruction = speedPacingMap[speed] || speedPacingMap.normal;
     const voiceMeta = voiceMapping[voiceName] || voiceMapping.Kore;
-    const combinedStyle = `${voiceMeta.personaPrompt}. ${style}. ${pacingInstruction}`;
+    // User-selected style takes first priority in voice direction
+    const combinedStyle = style
+      ? `${style}. ${voiceMeta.personaPrompt}. ${pacingInstruction}`
+      : `${voiceMeta.personaPrompt}. ${pacingInstruction}`;
 
     // Check if multi-speaker dialogue mode is requested
     if (isMultiSpeaker && Array.isArray(speakers) && speakers.length >= 2) {
@@ -140,41 +143,52 @@ app.post('/api/tts/generate', async (req, res) => {
           text: `${spk.speaker}: ${cleanSpkText}`,
           speechMetadata: {
             speaker: spk.speaker,
-            style: `${meta.personaPrompt}. ${spk.style || style}. ${pacingInstruction}`,
+            style: spk.style ? `${spk.style}. ${meta.personaPrompt}. ${pacingInstruction}` : `${meta.personaPrompt}. ${pacingInstruction}`,
           },
         };
       });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-tts',
-        contents: [
-          {
-            role: 'user',
-            parts,
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            multiSpeakerVoiceConfig: {
-              speakerVoiceConfigs: [
-                {
-                  speaker: spk1.speaker,
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: spk1Meta.apiVoice },
-                  },
+      let response;
+      let modelUsed = 'gemini-3.8-flash-lite-tts';
+
+      const multiSpeakerConfig = {
+        responseModalities: ['AUDIO' as const],
+        speechConfig: {
+          multiSpeakerVoiceConfig: {
+            speakerVoiceConfigs: [
+              {
+                speaker: spk1.speaker,
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: spk1Meta.apiVoice },
                 },
-                {
-                  speaker: spk2.speaker,
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: spk2Meta.apiVoice },
-                  },
+              },
+              {
+                speaker: spk2.speaker,
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: spk2Meta.apiVoice },
                 },
-              ],
-            },
+              },
+            ],
           },
         },
-      });
+      };
+
+      try {
+        // Primary: gemini-3.8-flash-lite-tts (Fast, high quota, full expressive multi-speaker support)
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [{ role: 'user', parts }],
+          config: multiSpeakerConfig,
+        });
+      } catch (liteErr: any) {
+        console.warn('Lite TTS multi-speaker failed, trying flash-tts:', liteErr?.message);
+        modelUsed = 'gemini-3.8-flash-tts';
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-tts',
+          contents: [{ role: 'user', parts }],
+          config: multiSpeakerConfig,
+        });
+      }
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64Audio) {
@@ -185,12 +199,12 @@ app.post('/api/tts/generate', async (req, res) => {
         success: true,
         audioBase64: base64Audio,
         mimeType: 'audio/wav',
-        modelUsed: 'gemini-3.8-flash-tts',
+        modelUsed,
       });
       return;
     }
 
-    // Single-Speaker mode: try primary gemini-3.8-flash-tts then lite
+    // Single-Speaker mode with full Voice Styling & Persona Direction
     const cleanSingleText = (text || '')
       .replace(/\[SFX:[^\]]+\]/gi, ' ')
       .replace(/<laugh>/gi, ' ')
@@ -198,37 +212,34 @@ app.post('/api/tts/generate', async (req, res) => {
       .trim();
 
     let response;
-    let modelUsed = 'gemini-3.8-flash-tts';
+    let modelUsed = 'gemini-3.8-flash-lite-tts';
+    const dummyVoice = voiceMeta.apiVoice === 'Kore' ? 'Puck' : 'Kore';
+
+    const multiSpeakerPayload = {
+      responseModalities: ['AUDIO' as const],
+      speechConfig: {
+        multiSpeakerVoiceConfig: {
+          speakerVoiceConfigs: [
+            {
+              speaker: 'Narrator',
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voiceMeta.apiVoice },
+              },
+            },
+            {
+              speaker: 'Dummy',
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: dummyVoice },
+              },
+            },
+          ],
+        },
+      },
+    };
 
     try {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-tts',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: cleanSingleText || 'สวัสดีครับ',
-                speechMetadata: {
-                  style: combinedStyle,
-                },
-              },
-            ],
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: voiceMeta.apiVoice },
-            },
-          },
-        },
-      });
-    } catch (primaryErr: any) {
-      console.warn('Primary TTS model attempt note:', primaryErr?.message);
-      // Try lite TTS model if primary failed
-      modelUsed = 'gemini-3.8-flash-lite-tts';
+      // Primary: gemini-3.8-flash-lite-tts with multiSpeakerVoiceConfig
+      // This applies user-selected style & speed pacing without reading narrator tags aloud!
       response = await ai.models.generateContent({
         model: 'gemini-3.8-flash-lite-tts',
         contents: [
@@ -236,23 +247,66 @@ app.post('/api/tts/generate', async (req, res) => {
             role: 'user',
             parts: [
               {
-                text: cleanSingleText || 'สวัสดีครับ',
+                text: `Narrator: ${cleanSingleText || 'สวัสดีครับ'}`,
                 speechMetadata: {
+                  speaker: 'Narrator',
                   style: combinedStyle,
                 },
               },
             ],
           },
         ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: voiceMeta.apiVoice },
+        config: multiSpeakerPayload,
+      });
+    } catch (primaryErr: any) {
+      console.warn('Primary lite-tts multi-speaker attempt note:', primaryErr?.message);
+      // Secondary: Try gemini-3.8-flash-tts with multiSpeakerVoiceConfig
+      try {
+        modelUsed = 'gemini-3.8-flash-tts';
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-tts',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `Narrator: ${cleanSingleText || 'สวัสดีครับ'}`,
+                  speechMetadata: {
+                    speaker: 'Narrator',
+                    style: combinedStyle,
+                  },
+                },
+              ],
+            },
+          ],
+          config: multiSpeakerPayload,
+        });
+      } catch (secErr: any) {
+        console.warn('Secondary gemini-3.8-flash-tts attempt note:', secErr?.message);
+        // Fallback 1: Try single voiceConfig on gemini-3.8-flash-lite-tts
+        modelUsed = 'gemini-3.8-flash-lite-tts';
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: cleanSingleText || 'สวัสดีครับ',
+                },
+              ],
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voiceMeta.apiVoice },
+              },
             },
           },
-        },
-      });
+        });
+      }
     }
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
@@ -277,13 +331,18 @@ app.post('/api/tts/generate', async (req, res) => {
       error?.status === 'RESOURCE_EXHAUSTED';
 
     if (isQuotaExceeded) {
-      // Gracefully communicate quota limit and instruct client to use high-quality local speech synthesizer
-      res.json({
+      const isPerMinute = errStr.includes('PerMinute') || errStr.includes('limit: 3');
+      const waitMatch = errStr.match(/retry in ([0-9.]+)s/i) || errStr.match(/retryDelay":"([0-9]+)s/i);
+      const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1])) : 25;
+
+      res.status(429).json({
         success: false,
         quotaExceeded: true,
-        fallback: true,
-        message:
-          'โควตา Gemini TTS รายวันเต็ม (Free Tier จำกัด 10 ครั้ง/วัน) — ระบบสลับมาใช้ High-Speed Speech Synthesizer ในเครื่องให้โดยอัตโนมัติ คุณยังสามารถมิกซ์เพลง ดาวน์โหลด และพากย์ 4 ภาคได้สมบูรณ์แบบ!',
+        isPerMinute,
+        waitSec,
+        error: isPerMinute
+          ? `ระบบจำกัดความถี่อยู่ที่ 3 ครั้ง/นาที (Free Tier Rate Limit) กรุณารอสักครู่ (~${waitSec} วินาที) แล้วกดสร้างเสียงพากย์ใหม่อีกครั้งครับ`
+          : 'โควตา Gemini TTS เต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่อีกครั้งครับ',
       });
       return;
     }
