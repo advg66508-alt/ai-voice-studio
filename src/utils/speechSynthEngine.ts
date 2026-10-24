@@ -1,19 +1,18 @@
 /**
- * High-Speed Speech Synthesis & Audio Fallback Engine
+ * Zero-Quota Client-Side Thai Web Speech API & Synthetic WAV Fallback Engine
  *
- * Ensures voiceover generation, playback, and WAV downloading NEVER break,
- * even when cloud API quotas are exhausted (HTTP 429) or offline.
- *
- * Capabilities:
- * 1. Speaks natively via Web Speech API (th-TH) with fine-tuned dialect pitch, rate, and authentic regional vocabulary
- * 2. Synthesizes an AudioBuffer using formant synthesis with regional tonal curves
- * 3. Audio preview helper for each regional voice
+ * - Uses 0% Gemini API quota (100% free via browser Web Speech API `th-TH`)
+ * - Smartly maps Pitch & Rate per character profile (12 voices: 6 Female, 6 Male) + 4 Thai regional accents
+ * - Automatically selects gender-matched Thai OS voices (e.g., Premwadee/Kanya vs Niwat) when available
+ * - Provides a guaranteed offline AudioBuffer (.WAV) synthesizer so exports never crash on Vercel or offline
  */
 
-import { VoiceName, SpeedPreset, RegionType } from '../types/voice';
-import { VOICES } from '../data/presets';
-import { audioBufferToWav } from './audioMixer';
-import { translateCentralToDialect, getDefaultScriptForRegionAndGender } from './dialectTranslator';
+import type { GenderType, RegionType, SpeedPreset, VoiceName } from '../types/voice';
+import {
+  getSmartVoiceParameters,
+  translateCentralToDialect,
+} from './dialectTranslator';
+import { encodeAudioBufferToWav } from './wavAudioProcessor';
 
 export interface SynthVoiceParams {
   text: string;
@@ -22,166 +21,220 @@ export interface SynthVoiceParams {
   speedRate: number;
 }
 
+export interface BrowserSpeechOptions {
+  region?: RegionType;
+  userPitch?: number;
+  userRate?: number;
+  autoTranslate?: boolean;
+  onEnd?: () => void;
+  onError?: () => void;
+}
+
+let voicesLoadedPromise: Promise<SpeechSynthesisVoice[]> | null = null;
+
 /**
- * Speaks text using the browser's speech synthesis engine with fine-tuned pitch, speed, and dialect vocabulary.
+ * Ensures Chrome/Safari asynchronous voice list is populated before checking for `th-TH` voices
+ */
+export function getAvailableSpeechVoices(): Promise<SpeechSynthesisVoice[]> {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return Promise.resolve([]);
+  }
+
+  const immediate = window.speechSynthesis.getVoices();
+  if (immediate.length > 0) {
+    return Promise.resolve(immediate);
+  }
+
+  if (!voicesLoadedPromise) {
+    voicesLoadedPromise = new Promise<SpeechSynthesisVoice[]>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve(window.speechSynthesis.getVoices());
+      };
+      window.speechSynthesis.addEventListener('voiceschanged', finish, { once: true });
+      setTimeout(finish, 180);
+    });
+  }
+
+  return voicesLoadedPromise;
+}
+
+/**
+ * Selects the best matching Thai voice on the user's device for the requested gender
+ */
+export function pickBestThaiBrowserVoice(
+  voices: SpeechSynthesisVoice[],
+  gender: GenderType
+): SpeechSynthesisVoice | null {
+  const thaiVoices = voices.filter(
+    (v) =>
+      v.lang.toLowerCase().startsWith('th') ||
+      v.lang.toLowerCase().includes('th-th') ||
+      /thai|ไทย|premwadee|niwat|kanya|narisa/i.test(v.name)
+  );
+
+  if (thaiVoices.length === 0) {
+    return null;
+  }
+
+  if (gender === 'male') {
+    const maleMatch = thaiVoices.find((v) =>
+      /niwat|pattara|male|ชาย|man/i.test(v.name)
+    );
+    if (maleMatch) return maleMatch;
+  } else {
+    const femaleMatch = thaiVoices.find((v) =>
+      /premwadee|kanya|narisa|female|หญิง|woman/i.test(v.name)
+    );
+    if (femaleMatch) return femaleMatch;
+  }
+
+  return thaiVoices[0];
+}
+
+/**
+ * Speaks Thai text via native Web Speech API (`th-TH`) with smart character Pitch & Rate mapping.
+ * Returns `true` if a Thai-capable Web Speech utterance was started, or `false` if unavailable.
  */
 export function speakWithBrowserSpeech(
   text: string,
   voiceName: VoiceName,
-  rate = 1.0,
-  onEnd?: () => void
+  rateOrOptions: number | BrowserSpeechOptions = 1.0,
+  legacyOnEnd?: () => void
 ): boolean {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return false;
   }
 
-  window.speechSynthesis.cancel();
+  const opts: BrowserSpeechOptions =
+    typeof rateOrOptions === 'number'
+      ? { userRate: rateOrOptions, onEnd: legacyOnEnd }
+      : rateOrOptions;
 
-  const voiceMeta = VOICES.find((v) => v.id === voiceName) || VOICES[0];
-  const region = (voiceMeta.region || 'central') as RegionType;
+  const region: RegionType = opts.region || 'central';
+  const userPitch = opts.userPitch ?? 1.0;
+  const userRate = opts.userRate ?? 1.0;
+  const autoTranslate = opts.autoTranslate ?? true;
 
-  // Ensure regional vocabulary is adapted before speaking so browser TTS pronounces authentic dialect words
-  let textToSpeak = text;
-  if (region !== 'central') {
-    const dialectResult = translateCentralToDialect(
-      text,
-      region,
-      voiceMeta.gender === 'male' ? 'male' : 'female'
-    );
-    textToSpeak = dialectResult.translatedText;
+  const smart = getSmartVoiceParameters(voiceName, region);
+  const gender = smart.character.gender;
+
+  let textToSpeak = text.trim();
+  if (!textToSpeak) {
+    textToSpeak = smart.character.sampleText;
   }
+
+  if (autoTranslate) {
+    textToSpeak = translateCentralToDialect(textToSpeak, region, gender).translatedText;
+  }
+
+  window.speechSynthesis.cancel();
 
   const utterance = new SpeechSynthesisUtterance(textToSpeak);
   utterance.lang = 'th-TH';
 
-  // Apply dialect-specific cadence and pitch
-  let targetRate = rate;
-  let targetPitch = voiceMeta.sampleAudioPitch || 1.0;
+  const finalPitch = Math.max(0.5, Math.min(2.0, smart.webSpeechPitch * userPitch));
+  const finalRate = Math.max(0.6, Math.min(2.0, smart.webSpeechRate * userRate));
 
-  if (region === 'northern') {
-    // Lanna cadence: sweet, gentle, slightly slower with lingering vowels
-    targetRate = Math.max(0.6, rate * 0.88);
-    targetPitch = voiceMeta.gender === 'female' ? 1.18 : 0.96;
-  } else if (region === 'isan') {
-    // Isan cadence: lively, rhythmic, upbeat
-    targetRate = Math.min(2.0, rate * 1.06);
-    targetPitch = voiceMeta.gender === 'female' ? 1.15 : 1.02;
-  } else if (region === 'southern') {
-    // Southern cadence: fast, punchy, crisp consonants
-    targetRate = Math.min(2.0, rate * 1.18);
-    targetPitch = voiceMeta.gender === 'female' ? 1.08 : 0.86;
-  } else {
-    // Central Thai
-    targetPitch = voiceMeta.gender === 'female' ? 1.12 : 0.92;
+  utterance.pitch = finalPitch;
+  utterance.rate = finalRate;
+
+  const voices = window.speechSynthesis.getVoices();
+  const bestThaiVoice = pickBestThaiBrowserVoice(voices, gender);
+  if (bestThaiVoice) {
+    utterance.voice = bestThaiVoice;
   }
 
-  utterance.rate = Math.max(0.6, Math.min(2.0, targetRate));
-  utterance.pitch = Math.max(0.5, Math.min(2.0, targetPitch));
-
-  // Try to find a Thai voice installed on the client's OS / browser
-  const allVoices = window.speechSynthesis.getVoices();
-  const thaiVoice = allVoices.find((v) => v.lang.startsWith('th') || v.lang.includes('TH'));
-  if (thaiVoice) {
-    utterance.voice = thaiVoice;
+  if (opts.onEnd) {
+    utterance.onend = () => opts.onEnd?.();
   }
-
-  if (onEnd) {
-    utterance.onend = onEnd;
-    utterance.onerror = () => onEnd();
-  }
+  utterance.onerror = () => {
+    if (opts.onError) {
+      opts.onError();
+    } else {
+      opts.onEnd?.();
+    }
+  };
 
   window.speechSynthesis.speak(utterance);
   return true;
 }
 
 /**
- * Creates an AudioBuffer with speech cadence, vowel formant resonance, and rhythmic modulation.
- * This guarantees an AudioBuffer for downstream mixing (Ambient BGM + SFX + WAV export).
+ * Creates a guaranteed client-side AudioBuffer (.WAV) with smart character Pitch & Rate resonance
+ * when running completely offline or when serverless network is unreachable.
  */
 export async function createSyntheticSpeechBuffer(
   text: string,
   voiceName: VoiceName,
   rate = 1.0,
-  sampleRate = 44100
+  region: RegionType = 'central',
+  sampleRate = 24000
 ): Promise<{ buffer: AudioBuffer; wavBlob: Blob; audioUrl: string }> {
-  const voiceMeta = VOICES.find((v) => v.id === voiceName) || VOICES[0];
-  const region = (voiceMeta.region || 'central') as RegionType;
+  const smart = getSmartVoiceParameters(voiceName, region);
+  const character = smart.character;
 
-  // Calculate realistic speech duration in seconds
   const charLength = Math.max(10, text.trim().length);
-  let speedMultiplier = 12 * rate;
-  if (region === 'northern') speedMultiplier *= 0.88;
-  if (region === 'southern') speedMultiplier *= 1.18;
-
-  const baseSeconds = charLength / speedMultiplier;
-  const duration = Math.max(2.5, Math.min(120, baseSeconds));
+  const speedMultiplier = 12.5 * smart.wavCadenceFactor * Math.max(0.65, rate);
+  const duration = Math.max(2.0, Math.min(90, charLength / speedMultiplier));
   const numSamples = Math.floor(sampleRate * duration);
 
-  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-  const buffer = audioCtx.createBuffer(2, numSamples, sampleRate);
-  const left = buffer.getChannelData(0);
-  const right = buffer.getChannelData(1);
-
-  // Fundamental frequency based on gender and region
-  let f0 = 175; // Neutral
-  if (voiceMeta.gender === 'female') {
-    f0 = 230 * (voiceMeta.sampleAudioPitch || 1.1);
-    if (region === 'northern') f0 *= 1.05; // sweet, delicate
-  } else if (voiceMeta.gender === 'male') {
-    f0 = 125 * (voiceMeta.sampleAudioPitch || 0.9);
-    if (region === 'southern') f0 *= 0.94; // deep, punchy
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const audioCtx = new AudioCtx();
+  let buffer: AudioBuffer;
+  try {
+    buffer = audioCtx.createBuffer(1, numSamples, sampleRate);
+  } finally {
+    audioCtx.close().catch(() => {});
   }
 
-  // Syllabic modulation frequency
+  const channel = buffer.getChannelData(0);
+  const f0Base =
+    character.gender === 'male'
+      ? 135 * smart.wavPitchFactor
+      : 215 * smart.wavPitchFactor;
+
   const syllables = Math.max(5, Math.floor(charLength / 3));
   const syllableDuration = duration / syllables;
 
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-
-    // Prosody envelope (natural rise and fall across sentence)
-    const sentenceProgress = t / duration;
-    let globalPitchDrift = 1.0 - 0.12 * sentenceProgress + 0.08 * Math.sin(sentenceProgress * Math.PI * 2);
+    const progress = t / duration;
+    let pitchContour = 1.0 - 0.1 * progress + 0.06 * Math.sin(progress * Math.PI * 3);
 
     if (region === 'northern') {
-      // Gentle melodic waves
-      globalPitchDrift += 0.06 * Math.sin(sentenceProgress * Math.PI * 4);
+      pitchContour += 0.05 * Math.sin(progress * Math.PI * 4);
     } else if (region === 'isan') {
-      // Upbeat rising lilt
-      globalPitchDrift += 0.08 * Math.sin(sentenceProgress * Math.PI * 6);
+      pitchContour += 0.07 * Math.sin(progress * Math.PI * 6);
     } else if (region === 'southern') {
-      // Rapid staccato modulation
-      globalPitchDrift += 0.05 * Math.sin(sentenceProgress * Math.PI * 8);
+      pitchContour += 0.04 * Math.sin(progress * Math.PI * 8);
     }
 
-    // Syllable rhythmic envelope
     const syllT = (t % syllableDuration) / syllableDuration;
-    const syllableEnvelope = Math.sin(syllT * Math.PI);
+    const envelope = Math.pow(Math.sin(syllT * Math.PI), 0.85);
+    const phase = 2 * Math.PI * f0Base * pitchContour * t;
 
-    // Glottal excitation pulse (fundamental + harmonics)
-    const currentF0 = f0 * globalPitchDrift;
-    const phase = 2 * Math.PI * currentF0 * t;
+    const glottal =
+      (Math.sin(phase) +
+        0.48 * Math.sin(2 * phase) +
+        0.24 * Math.sin(3 * phase) +
+        0.12 * Math.sin(4 * phase)) /
+      1.84;
 
-    const h1 = Math.sin(phase);
-    const h2 = 0.5 * Math.sin(2 * phase);
-    const h3 = 0.25 * Math.sin(3 * phase);
-    const h4 = 0.12 * Math.sin(4 * phase);
-    const glottal = (h1 + h2 + h3 + h4) / 1.87;
+    const formant =
+      0.65 * glottal +
+      0.22 * Math.sin(2 * Math.PI * 620 * t) +
+      0.13 * Math.sin(2 * Math.PI * 1550 * t);
 
-    // Vowel formants resonance
-    const f1Phase = 2 * Math.PI * 650 * t;
-    const f2Phase = 2 * Math.PI * 1600 * t;
-    const formantColor = 0.6 * glottal + 0.25 * Math.sin(f1Phase) + 0.15 * Math.sin(f2Phase);
-
-    // Fade in and fade out edges
-    const edgeFade = Math.min(1, Math.min(t / 0.08, (duration - t) / 0.15));
-    const val = formantColor * syllableEnvelope * edgeFade * 0.45;
-
-    left[i] = val;
-    right[i] = val * 0.98;
+    const fade = Math.min(1, Math.min(t / 0.06, (duration - t) / 0.12));
+    channel[i] = formant * envelope * fade * 0.42;
   }
 
-  const wavBlob = audioBufferToWav(buffer);
+  const wavBlob = encodeAudioBufferToWav(buffer);
   const audioUrl = URL.createObjectURL(wavBlob);
 
   return { buffer, wavBlob, audioUrl };

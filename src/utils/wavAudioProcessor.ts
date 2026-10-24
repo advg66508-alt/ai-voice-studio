@@ -8,12 +8,15 @@
  * - Encodes output into a standard 16-bit PCM RIFF .WAV Blob ready for playback and download
  */
 
+import type { VocalEqProfile } from '../types/voice';
+
 export interface WavRenderOptions {
   baseVoicePitch?: number;
   baseVoiceCadence?: number;
   userPitch?: number;
   userSpeed?: number;
   gender?: 'female' | 'male';
+  eqProfile?: VocalEqProfile;
   isFallback?: boolean;
 }
 
@@ -173,6 +176,7 @@ export async function renderProcessedWav(
     userPitch = 1.0,
     userSpeed = 1.0,
     gender = 'female',
+    eqProfile = 'neutral',
     isFallback = false,
   } = options;
 
@@ -209,25 +213,36 @@ export async function renderProcessedWav(
   const wsolaRate = effectiveSpeed / effectivePitch;
   workingBuffer = timeStretchWSOLA(workingBuffer, wsolaRate);
 
-  // Step 3: Subtle vocal warmth EQ when Male voice is synthesized via Fallback Engine
-  if (isFallback && gender === 'male' && workingBuffer.length > 0) {
+  // Step 3: Character Vocal EQ Shaping (Male chest resonance, warm storytelling, or crisp commercial presence)
+  if ((isFallback || eqProfile !== 'neutral') && workingBuffer.length > 0) {
     const eqCtx = new OfflineAudioContext(numChannels, workingBuffer.length, sampleRate);
     const srcNode = eqCtx.createBufferSource();
     srcNode.buffer = workingBuffer;
 
-    // Add natural chest warmth around 165Hz
     const lowShelf = eqCtx.createBiquadFilter();
     lowShelf.type = 'lowshelf';
-    lowShelf.frequency.value = 165;
-    lowShelf.gain.value = 3.2;
+    lowShelf.frequency.value = gender === 'male' ? 165 : 220;
 
-    // Smooth upper sibilance after downward resampling
+    const presence = eqCtx.createBiquadFilter();
+    presence.type = 'peaking';
+    presence.frequency.value = gender === 'male' ? 2800 : 3400;
+    presence.Q.value = 1.1;
+
     const lowPass = eqCtx.createBiquadFilter();
     lowPass.type = 'lowpass';
-    lowPass.frequency.value = 7600;
+    lowPass.frequency.value = gender === 'male' ? 7600 : 10500;
+
+    if (gender === 'male') {
+      lowShelf.gain.value = eqProfile === 'deep' ? 4.2 : eqProfile === 'warm' ? 3.5 : 2.6;
+      presence.gain.value = eqProfile === 'crisp' ? 2.2 : eqProfile === 'bright' ? 1.8 : 0.6;
+    } else {
+      lowShelf.gain.value = eqProfile === 'warm' ? 1.8 : -0.5;
+      presence.gain.value = eqProfile === 'bright' ? 2.4 : eqProfile === 'crisp' ? 2.8 : 0.8;
+    }
 
     srcNode.connect(lowShelf);
-    lowShelf.connect(lowPass);
+    lowShelf.connect(presence);
+    presence.connect(lowPass);
     lowPass.connect(eqCtx.destination);
     srcNode.start(0);
 

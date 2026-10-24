@@ -2,9 +2,15 @@ export type VoiceName =
   | 'Kore'
   | 'Mira'
   | 'Elena'
+  | 'Pimry'
+  | 'Pimdao'
+  | 'Yada'
   | 'Puck'
   | 'Charon'
   | 'Fenrir'
+  | 'Thanwa'
+  | 'Kan'
+  | 'Akin'
   | 'Zephyr'
   | 'Lanna_Female'
   | 'Lanna_Male'
@@ -19,6 +25,8 @@ export type GenderType = 'female' | 'male';
 
 export type SpeedPreset = 'slow' | 'normal' | 'fast';
 
+export type VocalEqProfile = 'warm' | 'bright' | 'deep' | 'crisp' | 'neutral';
+
 export interface StudioCharacter {
   id: VoiceName;
   name: string;
@@ -26,8 +34,11 @@ export interface StudioCharacter {
   region: RegionType;
   gender: GenderType;
   toneSummary: string;
+  webSpeechPitch: number;
+  webSpeechRate: number;
   fallbackPitch: number;
   fallbackCadence: number;
+  eqProfile: VocalEqProfile;
   sampleText: string;
 }
 

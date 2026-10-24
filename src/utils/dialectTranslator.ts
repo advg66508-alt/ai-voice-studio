@@ -102,170 +102,254 @@ export const REGIONAL_METAS: Record<RegionType, RegionalMeta> = {
 };
 
 /**
- * Curated Studio Characters covering all 4 Thai Regions & both Genders (Male / Female)
+ * Regional Prosody Modifiers (layered onto any selected character profile)
+ */
+export const REGION_PROSODY_MODIFIERS: Record<
+  RegionType,
+  { pitchMultiplier: number; rateMultiplier: number }
+> = {
+  central: { pitchMultiplier: 1.0, rateMultiplier: 1.0 },
+  northern: { pitchMultiplier: 1.02, rateMultiplier: 0.93 },
+  isan: { pitchMultiplier: 1.01, rateMultiplier: 1.04 },
+  southern: { pitchMultiplier: 0.99, rateMultiplier: 1.09 },
+};
+
+/**
+ * Expanded 12-Character Voice Talent Library (Zero API Quota Required)
+ * - 6 Female Voices: ขวัญข้าว, มายด์, ลลิตา, พิมรี่, พิมพ์ดาว, ญดา
+ * - 6 Male Voices: พีท, ชลันธร, ภูผา, ธันวา, กันต์, อคิน
  */
 export const STUDIO_CHARACTERS: StudioCharacter[] = [
-  // ภาคกลาง - หญิง
+  // ==========================================
+  // 6 Female Voices (เสียงผู้หญิง)
+  // ==========================================
   {
     id: 'Kore',
     name: 'ขวัญข้าว',
-    roleLabel: 'นุ่มนวล · อบอุ่น',
+    roleLabel: 'นุ่มนวล - อบอุ่น',
     region: 'central',
     gender: 'female',
     toneSummary: 'น้ำเสียงอบอุ่น นุ่มนวล สุภาพ ฟังสบาย',
+    webSpeechPitch: 1.03,
+    webSpeechRate: 0.96,
     fallbackPitch: 1.0,
-    fallbackCadence: 1.0,
-    sampleText: 'สวัสดีค่ะ ขวัญข้าวพร้อมพากย์เสียงภาษากลางที่นุ่มนวลและชัดเจนให้คุณค่ะ',
+    fallbackCadence: 0.97,
+    eqProfile: 'warm',
+    sampleText: 'สวัสดีค่ะ ขวัญข้าวพร้อมดูแลเสียงพากย์ที่นุ่มนวลและอบอุ่นให้คุณนะคะ',
   },
   {
     id: 'Mira',
     name: 'มายด์',
-    roleLabel: 'สดใส · รีวิว/ป้ายยา',
+    roleLabel: 'สดใส - รีวิว/ป้ายยา',
     region: 'central',
     gender: 'female',
-    toneSummary: 'น้ำเสียงสดใส ร่าเริง คล่องแคล่ว ทันสมัย',
+    toneSummary: 'น้ำเสียงสดใส ร่าเริง คล่องแคล่ว น่าชวนซื้อ',
+    webSpeechPitch: 1.14,
+    webSpeechRate: 1.08,
     fallbackPitch: 1.08,
-    fallbackCadence: 1.05,
-    sampleText: 'ฮัลโหลทุกคน! มายด์มาแล้วค่ะ พร้อมรีวิวและป้ายยาแบบสดใสน่ารักเลยน้า!',
+    fallbackCadence: 1.06,
+    eqProfile: 'bright',
+    sampleText: 'สวัสดีค่ะทุกคน วันนี้มายด์มีของดีมารีวิวป้ายยา บอกเลยว่าคุ้มค่ามากจริงๆ ค่ะ',
   },
   {
     id: 'Elena',
     name: 'ลลิตา',
-    roleLabel: 'ผู้ประกาศ · มืออาชีพ',
+    roleLabel: 'ผู้ประกาศ - มืออาชีพ',
     region: 'central',
     gender: 'female',
-    toneSummary: 'น้ำเสียงสุขุม มั่นใจ น่าเชื่อถือ ระดับองค์กร',
+    toneSummary: 'น้ำเสียงสุขุม มั่นใจ ชัดถ้อยชัดคำ น่าเชื่อถือ',
+    webSpeechPitch: 0.96,
+    webSpeechRate: 1.0,
     fallbackPitch: 0.96,
-    fallbackCadence: 0.99,
+    fallbackCadence: 1.0,
+    eqProfile: 'crisp',
     sampleText: 'สวัสดีค่ะ ลลิตาพร้อมนำเสนอบทบรรยายและข้อมูลธุรกิจระดับมืออาชีพค่ะ',
   },
+  {
+    id: 'Pimry',
+    name: 'พิมรี่',
+    roleLabel: 'สดใส - มีพลัง / TikTok Style',
+    region: 'central',
+    gender: 'female',
+    toneSummary: 'น้ำเสียงกระฉับกระเฉง พลังสูง เร้าใจ สไตล์ไลฟ์และคลิปสั้น',
+    webSpeechPitch: 1.19,
+    webSpeechRate: 1.18,
+    fallbackPitch: 1.12,
+    fallbackCadence: 1.15,
+    eqProfile: 'bright',
+    sampleText: 'ทุกคนฟังทางนี้เลยค่ะ โปรโมชั่นพิเศษวันนี้ลดจัดเต็ม รีบสั่งซื้อกันเลยนะคะ',
+  },
+  {
+    id: 'Pimdao',
+    name: 'พิมพ์ดาว',
+    roleLabel: 'นุ่มนวล - สบายๆ / เล่าเรื่อง',
+    region: 'central',
+    gender: 'female',
+    toneSummary: 'น้ำเสียงละมุน จังหวะผ่อนคลาย เหมาะกับเล่าเรื่องและพอดแคสต์',
+    webSpeechPitch: 1.06,
+    webSpeechRate: 0.9,
+    fallbackPitch: 1.03,
+    fallbackCadence: 0.91,
+    eqProfile: 'warm',
+    sampleText: 'สวัสดีค่ะ วันนี้พิมพ์ดาวจะชวนทุกคนมาฟังเรื่องราวสบายๆ ผ่อนคลายไปด้วยกันนะคะ',
+  },
+  {
+    id: 'Yada',
+    name: 'ญดา',
+    roleLabel: 'ฉะฉาน - สปอตโฆษณา',
+    region: 'central',
+    gender: 'female',
+    toneSummary: 'น้ำเสียงคมชัด ฉะฉาน ดึงดูดความสนใจ เหมาะกับสปอตโฆษณา',
+    webSpeechPitch: 1.09,
+    webSpeechRate: 1.12,
+    fallbackPitch: 1.05,
+    fallbackCadence: 1.1,
+    eqProfile: 'crisp',
+    sampleText: 'ยกระดับทุกความคุ้มค่า สัมผัสคุณภาพที่คุณมั่นใจได้ตั้งแต่วันนี้ สั่งซื้อได้เลยค่ะ',
+  },
 
-  // ภาคกลาง - ชาย
+  // ==========================================
+  // 6 Male Voices (เสียงผู้ชาย)
+  // ==========================================
   {
     id: 'Puck',
     name: 'พีท',
-    roleLabel: 'สดใส · มีพลัง',
+    roleLabel: 'สดใส - มีพลัง',
     region: 'central',
     gender: 'male',
     toneSummary: 'น้ำเสียงผู้ชายสดใส กระตือรือร้น เป็นกันเอง',
-    fallbackPitch: 0.81,
-    fallbackCadence: 1.04,
-    sampleText: 'สวัสดีครับทุกคน! วันนี้อยู่กับพีท พร้อมลุยทุกคอนเทนต์สนุกๆ ไปด้วยกันครับ!',
+    webSpeechPitch: 0.88,
+    webSpeechRate: 1.08,
+    fallbackPitch: 0.82,
+    fallbackCadence: 1.06,
+    eqProfile: 'bright',
+    sampleText: 'สวัสดีครับทุกคน วันนี้อยู่กับพีท พร้อมลุยทุกคอนเทนต์สนุกๆ ไปด้วยกันเลยครับ',
   },
   {
     id: 'Charon',
     name: 'ชลันธร',
-    roleLabel: 'สุขุม · อ่านข่าว/สารคดี',
+    roleLabel: 'สุขุม - อ่านข่าว/สารคดี',
     region: 'central',
     gender: 'male',
-    toneSummary: 'น้ำเสียงผู้ชายสุขุม คมชัด น่าเชื่อถือ',
+    toneSummary: 'น้ำเสียงผู้ชายสุขุม คมชัด ทางการ น่าเชื่อถือ',
+    webSpeechPitch: 0.78,
+    webSpeechRate: 0.98,
     fallbackPitch: 0.77,
     fallbackCadence: 0.98,
-    sampleText: 'สวัสดีครับท่านผู้ฟัง ขอต้อนรับเข้าสู่รายงานข่าวและสารคดีประจำวันครับ',
+    eqProfile: 'crisp',
+    sampleText: 'สวัสดีครับ ขอต้อนรับทุกท่านเข้าสู่รายงานข่าวและสารคดีประจำวันครับ',
   },
   {
     id: 'Fenrir',
     name: 'ภูผา',
-    roleLabel: 'ทุ้มลึก · ทรงพลัง',
+    roleLabel: 'ทุ้มลึก - ทรงพลัง',
     region: 'central',
     gender: 'male',
-    toneSummary: 'น้ำเสียงผู้ชายทุ้มลึก เข้มขรึม ทรงพลัง',
-    fallbackPitch: 0.73,
+    toneSummary: 'น้ำเสียงผู้ชายทุ้มต่ำ เข้มขรึม ทรงพลัง',
+    webSpeechPitch: 0.67,
+    webSpeechRate: 0.92,
+    fallbackPitch: 0.71,
+    fallbackCadence: 0.93,
+    eqProfile: 'deep',
+    sampleText: 'ในห้วงเวลาแห่งการเดินทางครั้งสำคัญ เตรียมพบกับพลังเสียงที่ทุ้มลึกทรงพลังครับ',
+  },
+  {
+    id: 'Thanwa',
+    name: 'ธันวา',
+    roleLabel: 'อบอุ่น - นุ่มลึก',
+    region: 'central',
+    gender: 'male',
+    toneSummary: 'น้ำเสียงผู้ชายอบอุ่น นุ่มลึก สุภาพ ฟังเพลิน',
+    webSpeechPitch: 0.75,
+    webSpeechRate: 0.93,
+    fallbackPitch: 0.75,
     fallbackCadence: 0.94,
-    sampleText: 'ในห้วงเวลาแห่งการผจญภัยอันยิ่งใหญ่ เตรียมพบกับความระทึกขวัญไปกับภูผาครับ',
-  },
-
-  // ภาคเหนือ - หญิง & ชาย
-  {
-    id: 'Lanna_Female',
-    name: 'น้องบัวตอง',
-    roleLabel: 'สาวเหนือ · อู้กำเมือง',
-    region: 'northern',
-    gender: 'female',
-    toneSummary: 'หวานละมุน อ่อนโยน สำเนียงเชียงใหม่ ลงท้าย เจ้า/เน้อเจ้า',
-    fallbackPitch: 1.06,
-    fallbackCadence: 0.91,
-    sampleText: 'สวัสดีเจ้า ยินดีต้อนฮับสู่เจียงใหม่เน้อเจ้า น้องบัวตองอู้กำเมืองม่วนๆ ลำขนาดเน้อเจ้า',
+    eqProfile: 'warm',
+    sampleText: 'สวัสดีครับ ธันวาพร้อมถ่ายทอดเรื่องราวด้วยน้ำเสียงที่อบอุ่นและนุ่มลึกให้คุณครับ',
   },
   {
-    id: 'Lanna_Male',
-    name: 'อ้ายหนานเมือง',
-    roleLabel: 'บ่าวเหนือ · ล้านนา',
-    region: 'northern',
+    id: 'Kan',
+    name: 'กันต์',
+    roleLabel: 'กวนๆ - สนุกสนาน',
+    region: 'central',
     gender: 'male',
-    toneSummary: 'สุภาพ อบอุ่น ใจดี สำเนียงหนุ่มเหนือแท้ ลงท้าย กั๊บ/เน้อครับ',
-    fallbackPitch: 0.79,
-    fallbackCadence: 0.92,
-    sampleText: 'สุมาเต๊อะกั๊บ ยินดีจ้าดนักเน้อครับ อ้ายหนานเมืองอู้กำเมืองอบอุ่นแต้ๆ กั๊บ',
-  },
-
-  // ภาคอีสาน - หญิง & ชาย
-  {
-    id: 'Isan_Female',
-    name: 'น้องคำแพง',
-    roleLabel: 'สาวอีสาน · เว้าม่วน',
-    region: 'isan',
-    gender: 'female',
-    toneSummary: 'สดใส ม่วนซื่น ตาฮัก สำเนียงอีสานแท้ ลงท้าย เด้อจ้า',
-    fallbackPitch: 1.05,
-    fallbackCadence: 1.06,
-    sampleText: 'สะบายดีจ้าพี่น้อง! มาพ้อกับน้องคำแพงมื้อนี้ ตำบักหุ่งแซ่บหลายคักอีหลีเด้อจ้า!',
-  },
-  {
-    id: 'Isan_Male',
-    name: 'อ้ายทิดทศ',
-    roleLabel: 'บ่าวอีสาน · คึกคักจริงใจ',
-    region: 'isan',
-    gender: 'male',
-    toneSummary: 'สนุกสนาน จริงใจ เป็นกันเอง สำเนียงบ่าวอีสาน ลงท้าย เด้อครับ',
-    fallbackPitch: 0.8,
-    fallbackCadence: 1.06,
-    sampleText: 'สะบายดีเด้อครับพี่น้อง! มื้อนี้อ้ายทิดทศพามาม่วนซื่น เว้าอีสานคักอีหลีเด้อครับ!',
-  },
-
-  // ภาคใต้ - หญิง & ชาย
-  {
-    id: 'Southern_Female',
-    name: 'สาวนุ้ย',
-    roleLabel: 'สาวใต้ · แหลงใต้หรอยแรง',
-    region: 'southern',
-    gender: 'female',
-    toneSummary: 'ฉะฉาน กระชับ คล่องแคล่ว จริงใจ ลงท้าย นิ/ตะน้องเหอ',
-    fallbackPitch: 1.04,
+    toneSummary: 'น้ำเสียงผู้ชายอารมณ์ดี ขี้เล่น จังหวะสนุกเป็นกันเอง',
+    webSpeechPitch: 0.93,
+    webSpeechRate: 1.14,
+    fallbackPitch: 0.86,
     fallbackCadence: 1.13,
-    sampleText: 'หวัดดีค่ะพี่น้องเหอ! วันนี้น้องนุ้ยมาแหลงใต้ให้ฟัง แกงส้มร้านนี้หรอยจังหู้นิ ลองชิมแลตะ!',
+    eqProfile: 'bright',
+    sampleText: 'สวัสดีครับเพื่อนๆ วันนี้กันต์มีของเด็ดสนุกๆ มาเล่าให้ฟัง ห้ามพลาดเด็ดขาดเลยครับ',
   },
   {
-    id: 'Southern_Male',
-    name: 'พี่บ่าวหลวง',
-    roleLabel: 'บ่าวใต้ · คมเข้มจริงใจ',
-    region: 'southern',
+    id: 'Akin',
+    name: 'อคิน',
+    roleLabel: 'ดุดัน - ตื่นเต้นเร้าใจ',
+    region: 'central',
     gender: 'male',
-    toneSummary: 'หนักแน่น คมเข้ม รวดเร็วกระชับ สำเนียงปักษ์ใต้ ลงท้าย คับพี่น้อง/นิ',
-    fallbackPitch: 0.76,
+    toneSummary: 'น้ำเสียงผู้ชายดุดัน กระชับ เร้าอารมณ์ ตื่นเต้น',
+    webSpeechPitch: 0.71,
+    webSpeechRate: 1.13,
+    fallbackPitch: 0.73,
     fallbackCadence: 1.12,
-    sampleText: 'หวัดดีคับพี่น้องชาวใต้! พี่บ่าวหลวงมาแหลงใต้หรอยๆ คมเข้มจริงใจ หรอยอย่างแรงนิคับพี่น้อง!',
+    eqProfile: 'deep',
+    sampleText: 'ถึงเวลาตัดสินชะตา เตรียมพบกับความตื่นเต้นเร้าใจแบบเต็มพิกัดได้แล้ววันนี้ครับ',
   },
 ];
 
+export function getCharactersByGender(gender: GenderType): StudioCharacter[] {
+  return STUDIO_CHARACTERS.filter((c) => c.gender === gender);
+}
+
 export function getCharactersByRegionAndGender(
-  region: RegionType,
+  _region: RegionType,
   gender: GenderType
 ): StudioCharacter[] {
-  return STUDIO_CHARACTERS.filter((c) => c.region === region && c.gender === gender);
+  return getCharactersByGender(gender);
 }
 
 export function resolveStudioCharacter(
-  region: RegionType,
+  _region: RegionType,
   gender: GenderType,
   preferredId?: VoiceName
 ): StudioCharacter {
-  const matching = getCharactersByRegionAndGender(region, gender);
+  const matching = getCharactersByGender(gender);
   if (preferredId) {
     const exact = matching.find((c) => c.id === preferredId);
     if (exact) return exact;
   }
   return matching[0] || STUDIO_CHARACTERS[0];
+}
+
+export function getSmartVoiceParameters(
+  characterId: VoiceName,
+  region: RegionType = 'central'
+): {
+  character: StudioCharacter;
+  webSpeechPitch: number;
+  webSpeechRate: number;
+  wavPitchFactor: number;
+  wavCadenceFactor: number;
+} {
+  const character =
+    STUDIO_CHARACTERS.find((c) => c.id === characterId) || STUDIO_CHARACTERS[0];
+  const mod = REGION_PROSODY_MODIFIERS[region] || REGION_PROSODY_MODIFIERS.central;
+
+  return {
+    character,
+    webSpeechPitch: Number(
+      Math.max(0.5, Math.min(1.6, character.webSpeechPitch * mod.pitchMultiplier)).toFixed(2)
+    ),
+    webSpeechRate: Number(
+      Math.max(0.65, Math.min(1.65, character.webSpeechRate * mod.rateMultiplier)).toFixed(2)
+    ),
+    wavPitchFactor: Number(
+      Math.max(0.65, Math.min(1.35, character.fallbackPitch * mod.pitchMultiplier)).toFixed(2)
+    ),
+    wavCadenceFactor: Number(
+      Math.max(0.75, Math.min(1.5, character.fallbackCadence * mod.rateMultiplier)).toFixed(2)
+    ),
+  };
 }
 
 export function isDefaultWelcomeScript(scriptText: string): boolean {
