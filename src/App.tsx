@@ -10,12 +10,16 @@ import { ScriptAssistantModal } from './components/ScriptAssistantModal';
 import { MultiSpeakerStudio } from './components/MultiSpeakerStudio';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { VoiceName, SpeedPreset, GeneratedClip, DialogueLine, SampleScript, RegionType } from './types/voice';
-import { VOICES, STYLE_PRESETS, SAMPLE_SCRIPTS } from './data/presets';
+import { VOICES, STYLE_PRESETS } from './data/presets';
 import { CodeExportModal } from './components/CodeExportModal';
 import { SampleScriptsSection } from './components/SampleScriptsSection';
 import { DialectSelector } from './components/DialectSelector';
-import { translateCentralToDialect } from './utils/dialectTranslator';
+import {
+  getDefaultScriptForRegionAndGender,
+  isDefaultWelcomeScript,
+} from './utils/dialectTranslator';
 import { speakWithBrowserSpeech, createSyntheticSpeechBuffer } from './utils/speechSynthEngine';
+import { stopPreviewAudio } from './utils/audioPreviewPlayer';
 import {
   AmbientSoundType,
   AMBIENT_PRESETS,
@@ -25,19 +29,12 @@ import {
 import {
   Sparkles,
   Volume2,
-  Wand2,
-  Download,
-  Play,
-  RotateCcw,
   CheckCircle2,
   AlertCircle,
   Copy,
   BookOpen,
-  Sliders,
   Users,
   Mic,
-  Globe,
-  Radio,
 } from 'lucide-react';
 
 export default function App() {
@@ -46,15 +43,15 @@ export default function App() {
   const [autoTranslateEnabled, setAutoTranslateEnabled] = useState<boolean>(true);
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
 
-  // Voice selection (Dropdown)
+  // Voice selection (Dropdown & Dialect cards)
   const [selectedVoice, setSelectedVoice] = useState<VoiceName>('Kore');
-  // Speed options (ช้า / ปกติ / เร็ว) - default 'normal' as requested
+  // Speed options (ช้า / ปกติ / เร็ว) - default 'normal'
   const [speedPreset, setSpeedPreset] = useState<SpeedPreset>('normal');
   const [speedRate, setSpeedRate] = useState<number>(1.0);
 
-  // Script Text
+  // Script Text (Default matches Kore female voice)
   const [text, setText] = useState<string>(
-    'ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI คุณสามารถเลือกเสียงผู้ชายหรือเสียงผู้หญิง ปรับความเร็วช้า ปกติ หรือเร็ว แล้วดาวน์โหลดไฟล์เสียงนำไปใช้งานได้ทันทีครับ'
+    'ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI คุณสามารถเลือกเสียงผู้ชายหรือเสียงผู้หญิง ปรับความเร็วช้า ปกติ หรือเร็ว แล้วดาวน์โหลดไฟล์เสียงนำไปใช้งานได้ทันทีค่ะ'
   );
   const [selectedStyleId, setSelectedStyleId] = useState<string>('commercial');
   const [customStyleText, setCustomStyleText] = useState<string>('');
@@ -82,7 +79,10 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [currentAudioUrl, setCurrentAudioUrl] = useState<string | null>(null);
   const [currentAudioBase64, setCurrentAudioBase64] = useState<string | null>(null);
-  const [currentClipTitle, setCurrentClipTitle] = useState<string>('เสียงพากย์ AI ทดสอบ');
+  const [currentClipTitle, setCurrentClipTitle] = useState<string>('เสียงพากย์ AI');
+  const [currentSpokenText, setCurrentSpokenText] = useState<string | null>(null);
+  const [currentDialectLabel, setCurrentDialectLabel] = useState<string | null>(null);
+  const [generationId, setGenerationId] = useState<number>(0);
   const [history, setHistory] = useState<GeneratedClip[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedNotification, setCopiedNotification] = useState<boolean>(false);
@@ -92,39 +92,45 @@ export default function App() {
   const [ambientVolume, setAmbientVolume] = useState<number>(0.18);
   const [mixIntoDownload, setMixIntoDownload] = useState<boolean>(true);
   const rawSpeechBufferRef = useRef<AudioBuffer | null>(null);
+  const lastRawScriptWithSFXRef = useRef<string>('');
   const [isMixingAudio, setIsMixingAudio] = useState<boolean>(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const playerSectionRef = useRef<HTMLDivElement | null>(null);
 
-  // Re-mix audio when ambient settings change
-  const handleAmbientChange = async (newType: AmbientSoundType) => {
-    setSelectedAmbient(newType);
-    if (rawSpeechBufferRef.current && mixIntoDownload) {
-      await reMixAudio(rawSpeechBufferRef.current, newType, ambientVolume);
+  // Unified Voice Selection Handler:
+  // Keeps selectedVoice, currentRegion, style gender compatibility, and default welcome script 100% synchronized!
+  const handleSelectVoiceUnified = (newVoice: VoiceName) => {
+    setSelectedVoice(newVoice);
+    const vObj = VOICES.find((v) => v.id === newVoice);
+    if (!vObj) return;
+
+    const targetRegion: RegionType = vObj.region || 'central';
+    if (targetRegion !== currentRegion) {
+      setCurrentRegion(targetRegion);
+    }
+
+    // Harmonize style preset if switching to a male voice while a female-only style was active
+    if (vObj.gender === 'male') {
+      const activeStyle = STYLE_PRESETS.find((s) => s.id === selectedStyleId);
+      if (activeStyle?.category === 'female') {
+        setSelectedStyleId('commercial');
+      }
+    }
+
+    // Update default welcome script if user hasn't typed custom text yet
+    if (isDefaultWelcomeScript(text)) {
+      const updatedDefault = getDefaultScriptForRegionAndGender(targetRegion, vObj.gender);
+      setText(updatedDefault);
     }
   };
 
-  const handleAmbientVolumeChange = async (newVol: number) => {
-    setAmbientVolume(newVol);
-    if (rawSpeechBufferRef.current && mixIntoDownload && selectedAmbient !== 'none') {
-      await reMixAudio(rawSpeechBufferRef.current, selectedAmbient, newVol);
-    }
-  };
-
-  const handleMixToggle = async (shouldMix: boolean) => {
-    setMixIntoDownload(shouldMix);
-    if (rawSpeechBufferRef.current) {
-      await reMixAudio(
-        rawSpeechBufferRef.current,
-        shouldMix ? selectedAmbient : 'none',
-        ambientVolume
-      );
-    }
-  };
-
+  // Re-mix audio helper (bakes pitch-preserving speedRate + ambient BGM + SFX into the downloadable WAV!)
   const reMixAudio = async (
     speechBuf: AudioBuffer,
     ambientType: AmbientSoundType,
-    vol: number
+    vol: number,
+    targetSpeedRate: number,
+    scriptForSFX: string
   ) => {
     setIsMixingAudio(true);
     try {
@@ -133,7 +139,8 @@ export default function App() {
         ambientType,
         vol,
         speechBuf.sampleRate,
-        ''
+        scriptForSFX,
+        targetSpeedRate
       );
       setCurrentAudioUrl(audioUrl);
     } catch (err) {
@@ -143,12 +150,38 @@ export default function App() {
     }
   };
 
+  const handleAmbientChange = (newType: AmbientSoundType) => {
+    setSelectedAmbient(newType);
+  };
+
+  const handleAmbientVolumeChange = (newVol: number) => {
+    setAmbientVolume(newVol);
+  };
+
+  const handleMixToggle = (shouldMix: boolean) => {
+    setMixIntoDownload(shouldMix);
+  };
+
+  // Automatically re-render the downloadable/playable WAV whenever speedRate or ambient settings change!
+  useEffect(() => {
+    if (!rawSpeechBufferRef.current) return;
+    const timer = setTimeout(() => {
+      if (rawSpeechBufferRef.current) {
+        reMixAudio(
+          rawSpeechBufferRef.current,
+          mixIntoDownload ? selectedAmbient : 'none',
+          mixIntoDownload ? ambientVolume : 0,
+          speedRate,
+          lastRawScriptWithSFXRef.current
+        );
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [speedRate, selectedAmbient, ambientVolume, mixIntoDownload]);
+
   // Script Assistant & Code Export Modals
   const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(false);
   const [isCodeModalOpen, setIsCodeModalOpen] = useState<boolean>(false);
-
-  // Quick fallback Web Speech API test
-  const [useLocalBrowserSpeech, setUseLocalBrowserSpeech] = useState<boolean>(false);
 
   // Voice details helper
   const currentVoiceObj = VOICES.find((v) => v.id === selectedVoice) || VOICES[0];
@@ -164,7 +197,7 @@ export default function App() {
   const charCount = text.length;
   const estimatedSeconds = Math.max(
     2,
-    Math.round((charCount / 14) / speedRate)
+    Math.round(charCount / 14 / speedRate)
   );
 
   // Handle Speed Preset Change
@@ -173,93 +206,36 @@ export default function App() {
     setSpeedRate(rate);
   };
 
-  // Generate Audio via Server API with automatic regional dialect adaptation and seamless fallback
+  // Generate Audio via Server API with automatic regional dialect adaptation and exact WAV rendering
   const handleGenerateVoiceover = async () => {
     if (!text.trim() && (!isMultiSpeaker || dialogues.length === 0)) {
       setErrorMessage('กรุณาใส่ข้อความสำหรับพากย์เสียง');
       return;
     }
 
+    stopPreviewAudio();
     setErrorMessage(null);
     setQuotaNotice(null);
     setIsGenerating(true);
 
     const stylePreset = STYLE_PRESETS.find((s) => s.id === selectedStyleId);
-    const stylePrompt = customStyleText || stylePreset?.promptInstruction || 'Clear, high quality voiceover';
+    const stylePrompt =
+      customStyleText.trim() ||
+      stylePreset?.promptInstruction ||
+      'Clear, natural, high-quality Thai voiceover';
 
-    // 1. Spoken script text: Strictly speak what the user typed in the text area word-for-word!
-    const textToVoice = text.trim();
-
-    // Helper: Execute High-Speed client-side synthesis fallback when explicitly requested
-    const executeFallbackSynth = async (noticeMsg: string) => {
-      try {
-        setQuotaNotice(noticeMsg);
-        const speechText = cleanScriptForSpeech(textToVoice);
-        const { buffer: synthBuffer, audioUrl: synthUrl } =
-          await createSyntheticSpeechBuffer(speechText, selectedVoice, speedRate);
-
-        rawSpeechBufferRef.current = synthBuffer;
-
-        let finalAudioUrl = synthUrl;
-        if (selectedAmbient !== 'none' && mixIntoDownload) {
-          const { audioUrl: mixedUrl } = await mixVoiceAndAmbient(
-            synthBuffer,
-            mixIntoDownload ? selectedAmbient : 'none',
-            mixIntoDownload ? ambientVolume : 0,
-            synthBuffer.sampleRate,
-            ''
-          );
-          finalAudioUrl = mixedUrl;
-        }
-
-        setCurrentAudioUrl(finalAudioUrl);
-
-        // Also play real Thai speech in browser simultaneously
-        speakWithBrowserSpeech(speechText, selectedVoice, speedRate);
-
-        const ambientLabelStr =
-          mixIntoDownload && selectedAmbient !== 'none'
-            ? ` + ${AMBIENT_PRESETS.find((p) => p.id === selectedAmbient)?.title}`
-            : '';
-        const regionTag = currentVoiceObj.dialectBadge ? ` [${currentVoiceObj.dialectBadge}]` : '';
-        const newTitle = `พากย์เสียง_${genderLabel}_${currentVoiceObj.thaiName || currentVoiceObj.name}${regionTag}_${speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว'}${ambientLabelStr}`;
-        setCurrentClipTitle(newTitle);
-
-        const newClip: GeneratedClip = {
-          id: `clip-${Date.now()}`,
-          title: newTitle,
-          text: textToVoice.slice(0, 100),
-          voiceName: selectedVoice,
-          speed: speedPreset,
-          speedRate: speedRate,
-          style: stylePreset?.title || 'พากย์ทั่วไป',
-          audioUrl: finalAudioUrl,
-          createdAt: Date.now(),
-          modelUsed: 'High-Speed Speech Engine',
-        };
-        setHistory((prev) => [newClip, ...prev]);
-      } catch (fallbackErr) {
-        console.error('Fallback synthesis error:', fallbackErr);
-        // Direct browser speech fallback
-        speakWithBrowserSpeech(textToVoice, selectedVoice, speedRate);
-      }
-    };
+    const rawInputScript = text.trim();
 
     try {
-      if (useLocalBrowserSpeech) {
-        await executeFallbackSynth('ใช้งานโหมดทดสอบเสียงสังเคราะห์ในเครื่อง');
-        setIsGenerating(false);
-        return;
-      }
-
-      const cleanedText = cleanScriptForSpeech(textToVoice);
+      const cleanedText = cleanScriptForSpeech(rawInputScript);
 
       const payload = {
-        text: cleanedText || textToVoice,
+        text: cleanedText || rawInputScript,
         voiceName: selectedVoice,
         speed: speedPreset,
         speedRate: speedRate,
         style: stylePrompt,
+        autoTranslate: autoTranslateEnabled,
         isMultiSpeaker,
         speakers: isMultiSpeaker
           ? dialogues.map((d) => ({
@@ -279,10 +255,11 @@ export default function App() {
 
       const data = await response.json();
 
-      // Check if Gemini API returned quota exhaustion or error
-      if (data.quotaExceeded || data.fallback) {
+      if (data.quotaExceeded || response.status === 429) {
         setErrorMessage(
-          data.message || 'โควตา Gemini TTS ของวันนี้เต็ม กรุณารอสักครู่หรือลองใหม่อีกครั้ง'
+          data.error ||
+            data.message ||
+            'ระบบจำกัดความถี่ชั่วคราว กรุณารอประมาณ 15-20 วินาทีแล้วกดสร้างเสียงพากย์ใหม่อีกครั้งครับ'
         );
         setIsGenerating(false);
         return;
@@ -298,43 +275,62 @@ export default function App() {
         const audioBlob = b64toBlob(data.audioBase64, 'audio/wav');
         let finalAudioUrl = URL.createObjectURL(audioBlob);
 
-        // Decode audio buffer and mix with ambient background track if selected
+        // Decode audio buffer, apply pitch-preserving WSOLA speedRate, and mix ambient BGM + SFX into WAV
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx: AudioContext = new AudioContextClass();
         try {
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
           const arrayBuffer = await audioBlob.arrayBuffer();
           const speechBuffer = await audioCtx.decodeAudioData(arrayBuffer);
           rawSpeechBufferRef.current = speechBuffer;
+          lastRawScriptWithSFXRef.current = isMultiSpeaker
+            ? dialogues.map((d) => d.text).join(' ')
+            : rawInputScript;
 
-          if (selectedAmbient !== 'none' && mixIntoDownload) {
-            const { audioUrl: mixedUrl } = await mixVoiceAndAmbient(
-              speechBuffer,
-              mixIntoDownload ? selectedAmbient : 'none',
-              mixIntoDownload ? ambientVolume : 0,
-              speechBuffer.sampleRate,
-              ''
-            );
-            finalAudioUrl = mixedUrl;
-          }
+          const effectiveAmbient = mixIntoDownload ? selectedAmbient : 'none';
+          const effectiveVol = mixIntoDownload ? ambientVolume : 0;
+
+          const { audioUrl: renderedUrl } = await mixVoiceAndAmbient(
+            speechBuffer,
+            effectiveAmbient,
+            effectiveVol,
+            speechBuffer.sampleRate,
+            lastRawScriptWithSFXRef.current,
+            speedRate
+          );
+          finalAudioUrl = renderedUrl;
         } catch (mixErr) {
-          console.warn('Audio mixing fallback to pure voice:', mixErr);
+          console.warn('Audio mixing fallback to pure studio WAV:', mixErr);
+        } finally {
+          audioCtx.close().catch(() => {});
         }
+
+        const spokenResultText: string = data.spokenText || cleanedText;
+        const dialectResultLabel: string =
+          data.dialectLabel || currentVoiceObj.dialectBadge || 'ภาษากลาง';
 
         setCurrentAudioUrl(finalAudioUrl);
         setCurrentAudioBase64(data.audioBase64);
+        setCurrentSpokenText(spokenResultText);
+        setCurrentDialectLabel(dialectResultLabel);
+        setGenerationId((prev) => prev + 1);
 
         const ambientLabelStr =
           mixIntoDownload && selectedAmbient !== 'none'
             ? ` + ${AMBIENT_PRESETS.find((p) => p.id === selectedAmbient)?.title}`
             : '';
         const regionTag = currentVoiceObj.dialectBadge ? ` [${currentVoiceObj.dialectBadge}]` : '';
-        const newTitle = `พากย์เสียง_${genderLabel}_${currentVoiceObj.thaiName || currentVoiceObj.name}${regionTag}_${speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว'}${ambientLabelStr}`;
+        const speedThai =
+          speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว';
+        const newTitle = `พากย์เสียง_${currentVoiceObj.thaiName || currentVoiceObj.name}${regionTag}_${speedThai}${ambientLabelStr}`;
         setCurrentClipTitle(newTitle);
 
         // Add to history
         const newClip: GeneratedClip = {
           id: `clip-${Date.now()}`,
           title: newTitle,
-          text: textToVoice.slice(0, 100),
+          text: spokenResultText.slice(0, 140),
+          spokenText: spokenResultText,
+          dialectLabel: dialectResultLabel,
           voiceName: selectedVoice,
           speed: speedPreset,
           speedRate: speedRate,
@@ -345,10 +341,18 @@ export default function App() {
           modelUsed: data.modelUsed,
         };
         setHistory((prev) => [newClip, ...prev]);
+
+        // Smooth scroll to player on mobile/smaller screens so user sees playback & download immediately
+        if (window.innerWidth < 1024 && playerSectionRef.current) {
+          playerSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       }
     } catch (err: any) {
       console.error('TTS Generation Exception:', err);
-      setErrorMessage(err?.message || 'ไม่สามารถเชื่อมต่อระบบสร้างเสียงพากย์ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง');
+      setErrorMessage(
+        err?.message ||
+          'ไม่สามารถเชื่อมต่อระบบสร้างเสียงพากย์ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง'
+      );
     } finally {
       setIsGenerating(false);
     }
@@ -380,19 +384,16 @@ export default function App() {
       sample.recommendedSpeed === 'slow' ? 0.75 : sample.recommendedSpeed === 'fast' ? 1.35 : 1.0
     );
 
-    // Sync Region if voice has region
     const vObj = VOICES.find((v) => v.id === sample.recommendedVoice);
     if (vObj?.region) {
       setCurrentRegion(vObj.region);
     }
 
-    // Apply Recommended Ambient Sound if present
-    if (sample.recommendedAmbient && sample.recommendedAmbient !== 'none') {
+    if (sample.recommendedAmbient) {
       setSelectedAmbient(sample.recommendedAmbient);
-      setMixIntoDownload(true);
+      setMixIntoDownload(sample.recommendedAmbient !== 'none');
     }
 
-    // Apply Multi-Speaker Dialogues if present
     if (sample.isMultiSpeaker && sample.sampleDialogues && sample.sampleDialogues.length > 0) {
       setIsMultiSpeaker(true);
       setDialogues(sample.sampleDialogues);
@@ -400,7 +401,6 @@ export default function App() {
       setIsMultiSpeaker(false);
     }
 
-    // Smooth scroll to editor
     if (textareaRef.current) {
       textareaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       textareaRef.current.focus();
@@ -423,12 +423,10 @@ export default function App() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-        {/* Futuristic Studio Hero Banner (Imagen Generated) */}
-        <StudioHeroBanner
-          onOpenAssistant={() => setIsAssistantOpen(true)}
-        />
+        {/* Studio Hero Banner */}
+        <StudioHeroBanner onOpenAssistant={() => setIsAssistantOpen(true)} />
 
-        {/* 📖 คู่มือแนะนำวิธีใช้งาน 4 ขั้นตอนง่ายๆ (Quick Start Guide) */}
+        {/* Quick Start Guide */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3 mb-3.5">
             <div className="flex items-center gap-2">
@@ -440,7 +438,7 @@ export default function App() {
               </h2>
             </div>
             <span className="text-[11px] text-amber-400/90 font-mono">
-              💡 มีคำอธิบายวิธีใช้กำกับไว้ทุกจุดด้านล่าง
+              💡 เสียงที่เล่นและไฟล์ .WAV ที่ดาวน์โหลดตรงตามสำเนียงและสไตล์ที่เลือก 100%
             </span>
           </div>
 
@@ -451,7 +449,7 @@ export default function App() {
                 <span>เลือกภาษาถิ่น & เสียง</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                เลือกภาค (กลาง, เหนือ, อีสาน, ใต้) และเลือกเสียงผู้ชายหรือผู้หญิงตามต้องการ
+                เลือกภาค (กลาง, เหนือ, อีสาน, ใต้ เช่น สาวนุ้ย แหลงใต้) ทั้งชายและหญิง
               </p>
             </div>
 
@@ -461,7 +459,7 @@ export default function App() {
                 <span>พิมพ์หรือวางข้อความ</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                พิมพ์ภาษากลางปกติได้เลย ระบบแปลงคำเป็นภาษาถิ่นให้อัตโนมัติทันที
+                พิมพ์ภาษากลางปกติได้เลย ระบบ AI แปลงเป็นสำเนียงและคำศัพท์ภาคนั้นให้อัตโนมัติ
               </p>
             </div>
 
@@ -481,7 +479,7 @@ export default function App() {
                 <span>สร้างเสียง & ดาวน์โหลด</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                กดปุ่ม &quot;สร้างเสียงพากย์ AI&quot; ฟังตัวอย่าง และกดดาวน์โหลดไฟล์ .WAV ฟรี
+                กดปุ่ม &quot;สร้างเสียงพากย์ AI&quot; ฟังเสียงจริง และกดดาวน์โหลดไฟล์ .WAV ทันที
               </p>
             </div>
           </div>
@@ -491,22 +489,22 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Script Editor & Controls (7 Cols) */}
           <div className="lg:col-span-7 space-y-5">
-            {/* 1. Regional Dialect & Accent Studio (เหนือ • อีสาน • ใต้ • กลาง ทั้งชายและหญิง) */}
+            {/* 1. Regional Dialect & Accent Studio */}
             <DialectSelector
               currentRegion={currentRegion}
               onSelectRegion={setCurrentRegion}
               selectedVoice={selectedVoice}
-              onSelectVoice={setSelectedVoice}
+              onSelectVoice={handleSelectVoiceUnified}
               currentScriptText={text}
               onApplyTranslatedScript={(translatedText) => setText(translatedText)}
               autoTranslateEnabled={autoTranslateEnabled}
               onToggleAutoTranslate={setAutoTranslateEnabled}
             />
 
-            {/* 1.2 Voice Dropdown (Dropdown เมนูให้เลือกเสียงผู้ชาย/เสียงผู้หญิง) */}
+            {/* 1.2 Voice Dropdown */}
             <VoiceDropdown
               selectedVoice={selectedVoice}
-              onVoiceChange={setSelectedVoice}
+              onVoiceChange={handleSelectVoiceUnified}
             />
 
             {/* 2. Text Script Editor */}
@@ -519,9 +517,14 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-slate-100 text-sm flex items-center gap-2">
                       ขั้นตอนที่ 2 • ข้อความบทพากย์ (Voiceover Script)
+                      {currentVoiceObj.dialectBadge && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium">
+                          กำลังใช้เสียง: {currentVoiceObj.thaiName} ({currentVoiceObj.dialectBadge})
+                        </span>
+                      )}
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      พิมพ์หรือวางข้อความภาษาไทยที่ต้องการให้อ่านออกเสียง
+                      พิมพ์ภาษากลางหรือภาษาถิ่นก็ได้ เมื่อเลือกเสียงภาคเหนือ/อีสาน/ใต้ ระบบจะแปลงและพากย์สำเนียงภาคนั้นให้จริง 100%
                     </p>
                   </div>
                 </div>
@@ -552,8 +555,10 @@ export default function App() {
               <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-2.5">
                 <span className="text-base shrink-0">💡</span>
                 <div className="space-y-0.5 text-[11px] leading-relaxed">
-                  <strong className="text-amber-300 font-semibold block">คำอธิบายวิธีพิมพ์บทพากย์:</strong>
-                  <span>พิมพ์หรือวางข้อความภาษาไทยทั่วไปได้เลย ไม่จำเป็นต้องแปลงเป็นคำเมืองหรือคำอีสานด้วยตัวเอง หากเปิด <strong>&quot;แปลงเสียงเป็นภาษาถิ่นเมื่อกดพากย์&quot;</strong> ในขั้นตอนที่ 1 ไว้ ระบบจะแปลงคำศัพท์ให้โดยอัตโนมัติ</span>
+                  <strong className="text-amber-300 font-semibold block">ระบบแปลงสำเนียงภาษาถิ่นอัจฉริยะ (AI Native Dialect):</strong>
+                  <span>
+                    หากคุณเลือกเสียง <strong>สาวนุ้ย (แหลงใต้)</strong>, <strong>น้องบัวตอง (คำเมือง)</strong> หรือ <strong>น้องคำแพง (เว้าอีสาน)</strong> แม้พิมพ์ข้อความภาษากลางธรรมดา ระบบจะถอดความคำศัพท์ คำสร้อย และวรรณยุกต์เป็นภาษาถิ่นแท้ๆ ก่อนพากย์ลงไฟล์ .WAV ให้โดยอัตโนมัติ!
+                  </span>
                 </div>
               </div>
 
@@ -562,24 +567,36 @@ export default function App() {
                 <span className="text-[11px] text-slate-400">⚡ ใส่ข้อความด่วน:</span>
                 <button
                   type="button"
-                  onClick={() => setText('เริ่มต้นวันใหม่ด้วยกาแฟสดหอมกรุ่น คัดสรรเมล็ดพันธุ์ชั้นดี รสชาติกลมกล่อม ละมุนในทุกสัมผัส')}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] transition-colors"
+                  onClick={() =>
+                    setText(
+                      'เริ่มต้นวันใหม่ด้วยกาแฟสดหอมกรุ่น คัดสรรเมล็ดพันธุ์ชั้นดี รสชาติกลมกล่อม อร่อยมาก อยากให้ทุกคนได้ลองชิมนะคะ'
+                    )
+                  }
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] transition-colors cursor-pointer"
                 >
                   ☕ กาแฟสด
                 </button>
                 <button
                   type="button"
-                  onClick={() => setText('โปรโมชั่นพิเศษวันนี้ ลดทันทีสูงสุด 70% ช้อปด่วน สินค้ามีจำนวนจำกัด พลาดรอบนี้รออีกทีปีหน้าเลยนะ')}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] transition-colors"
+                  onClick={() =>
+                    setText(
+                      'โปรโมชั่นพิเศษวันนี้ ลดทันทีสูงสุด 70% ช้อปด่วน สินค้ามีจำนวนจำกัด พลาดรอบนี้รออีกทีปีหน้าเลยนะ'
+                    )
+                  }
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] transition-colors cursor-pointer"
                 >
                   🛍️ โปรโมชั่น
                 </button>
                 <button
                   type="button"
-                  onClick={() => setText('ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI สร้างเสียงพากย์คุณภาพระดับมืออาชีพง่ายๆ ในไม่กี่วินาที')}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] transition-colors"
+                  onClick={() =>
+                    setText(
+                      'สวัสดีค่ะ วันนี้มีแกงส้มกุ้งสดรสเด็ด อร่อยมากจริงๆ ราคาไม่แพง รีบสั่งไปชิมกันเลยนะคะ'
+                    )
+                  }
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] transition-colors cursor-pointer"
                 >
-                  👋 ต้อนรับ
+                  🍲 รีวิวอาหารเด็ด
                 </button>
               </div>
 
@@ -589,7 +606,7 @@ export default function App() {
                   ref={textareaRef}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="พิมพ์ข้อความที่ต้องการพากย์ที่นี่ เช่น: เริ่มต้นวันใหม่ด้วยกาแฟสดหอมกรุ่น คัดสรรเมล็ดพันธุ์ชั้นดี..."
+                  placeholder="พิมพ์ข้อความที่ต้องการพากย์ที่นี่ เช่น: วันนี้อาหารอร่อยมาก อยากชวนทุกคนมาลองชิมกันนะคะ..."
                   rows={5}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-amber-500 leading-relaxed resize-y font-normal"
                 />
@@ -630,7 +647,7 @@ export default function App() {
                 </button>
 
                 <div className="text-[11px] text-slate-500">
-                  ระบบเสียง AI ภาษาไทยความละเอียดสูง
+                  รองรับพากย์ข้ามสำเนียง 4 ภาค
                 </div>
               </div>
 
@@ -645,7 +662,7 @@ export default function App() {
               )}
             </div>
 
-            {/* 3. Speed Selector (ช้า / ปกติ / เร็ว) */}
+            {/* 3. Speed Selector */}
             <SpeedSelector
               speed={speedPreset}
               onSpeedChange={handleSpeedPresetChange}
@@ -653,17 +670,17 @@ export default function App() {
               onSpeedRateChange={setSpeedRate}
             />
 
-            {/* 3.2 Style Selector (สไตล์ผู้หญิง & สไตล์ทั่วไป พร้อม Dropdown เมนู) */}
+            {/* 3.2 Style Selector */}
             <StyleSelector
               selectedStyleId={selectedStyleId}
               onStyleChange={setSelectedStyleId}
               customStyleText={customStyleText}
               onCustomStyleChange={setCustomStyleText}
               currentVoice={selectedVoice}
-              onSelectVoice={setSelectedVoice}
+              onSelectVoice={handleSelectVoiceUnified}
             />
 
-            {/* 4. Background Music & Ambient Selector (คาเฟ่, ธรรมชาติ, คลื่นทะเล, Lo-Fi, Cinematic) */}
+            {/* 4. Background Music & Ambient Selector */}
             <BackgroundMusicSelector
               selectedAmbient={selectedAmbient}
               onAmbientChange={handleAmbientChange}
@@ -675,25 +692,29 @@ export default function App() {
 
             {/* Main Action Box with Generate Button */}
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3">
-              <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 px-1">
                 <span className="flex items-center gap-1.5 font-medium">
-                  <span className="text-amber-400">💡</span>
-                  <span><strong>คำแนะนำ:</strong> เมื่อตั้งค่าครบถ้วนแล้ว กดปุ่มสร้างเสียงพากย์ด้านล่าง</span>
+                  <span className="text-amber-400">🎙️</span>
+                  <span>
+                    พร้อมสร้างเสียง: <strong className="text-amber-300">{currentVoiceObj.name}</strong>
+                    {currentVoiceObj.dialectBadge ? ` (${currentVoiceObj.dialectBadge})` : ''}
+                  </span>
                 </span>
-                <span className="text-emerald-400 font-mono text-[11px]">⚡ ใช้เวลา 1-3 วินาที</span>
+                <span className="text-emerald-400 font-mono text-[11px]">
+                  ⚡ ความเร็ว {speedRate.toFixed(2)}x • คุณภาพ 24kHz WAV
+                </span>
               </div>
 
-              {/* Quota fallback notice banner */}
               {quotaNotice && (
                 <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5 shadow-sm">
                   <Sparkles className="w-4 h-4 shrink-0 text-amber-400 mt-0.5 animate-pulse" />
                   <div className="space-y-0.5 flex-1">
                     <div className="font-semibold text-amber-300 flex items-center justify-between">
-                      <span>⚡ กำลังใช้งาน High-Speed Speech Synthesizer</span>
+                      <span>แจ้งเตือนสถานะ</span>
                       <button
                         type="button"
                         onClick={() => setQuotaNotice(null)}
-                        className="text-slate-400 hover:text-slate-200 text-[10px]"
+                        className="text-slate-400 hover:text-slate-200 text-[10px] cursor-pointer"
                       >
                         ✕ ปิด
                       </button>
@@ -703,7 +724,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Error message if any */}
               {errorMessage && (
                 <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -721,13 +741,16 @@ export default function App() {
                 {isGenerating ? (
                   <>
                     <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>กำลังสร้างเสียงพากย์ AI...</span>
+                    <span>
+                      กำลังถอดสำเนียงและสร้างเสียงพากย์ ({currentVoiceObj.thaiName || currentVoiceObj.name})...
+                    </span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-5 h-5 fill-current" />
                     <span>
-                      สร้างเสียงพากย์ AI ({genderLabel} • {speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว'})
+                      สร้างเสียงพากย์ AI ({currentVoiceObj.thaiName || currentVoiceObj.name} •{' '}
+                      {speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว'})
                     </span>
                   </>
                 )}
@@ -736,7 +759,7 @@ export default function App() {
           </div>
 
           {/* Right Column: Audio Output Player & Tools (5 Cols) */}
-          <div className="lg:col-span-5 space-y-5">
+          <div className="lg:col-span-5 space-y-5" ref={playerSectionRef}>
             {/* 1. Audio Player with Waveform & Download Button */}
             <div className="space-y-3">
               <div className="flex items-center justify-between px-1">
@@ -746,7 +769,7 @@ export default function App() {
                 </h3>
                 {currentAudioUrl && (
                   <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    เสร็จสมบูรณ์
+                    พร้อมฟังและดาวน์โหลด
                   </span>
                 )}
               </div>
@@ -756,6 +779,10 @@ export default function App() {
                 audioBase64={currentAudioBase64}
                 title={currentClipTitle}
                 voiceName={currentVoiceObj.name}
+                spokenText={currentSpokenText}
+                dialectLabel={currentDialectLabel}
+                isMixing={isMixingAudio}
+                generationId={generationId}
                 speedRate={speedRate}
                 onSpeedRateChange={setSpeedRate}
                 speedPreset={speedPreset}
@@ -769,7 +796,7 @@ export default function App() {
               />
             </div>
 
-            {/* 2. Sample Scripts Ready in 1-Click with Search, Category Tabs & Quick Speech Preview */}
+            {/* 2. Sample Scripts Ready in 1-Click */}
             <SampleScriptsSection onApplySample={handleApplySample} />
 
             {/* 3. Quick Feature Highlights */}
@@ -779,24 +806,36 @@ export default function App() {
                 <span>จุดเด่นของระบบสตูดิโอเสียง AI:</span>
               </div>
               <ul className="space-y-1.5 pl-5 list-disc text-slate-400 leading-relaxed text-[11px]">
-                <li>รองรับ <strong className="text-amber-300">สำเนียงภาษาถิ่น 4 ภาค</strong>: เหนือ (คำเมือง), อีสาน, ใต้, กลาง พร้อมระบบแปลงคำอัตโนมัติ</li>
-                <li>เลือกได้ทั้ง <strong className="text-slate-200">เสียงผู้หญิง</strong> และ <strong className="text-slate-200">เสียงผู้ชาย</strong> ครบทุกสำเนียง</li>
-                <li>ได้ไฟล์เสียง <strong className="text-slate-200">.WAV คุณภาพสตูดิโอ 24kHz</strong> นำไปตัดต่อใน CapCut หรือ Premiere ได้ทันที</li>
-                <li>ปรับความเร็วได้ 3 ระดับ: <strong>ช้า (0.75x)</strong>, <strong>ปกติ (1.0x)</strong>, <strong>เร็ว (1.35x)</strong></li>
-                <li>ตัดเสียงเอฟเฟกต์รบกวนออก ให้เสียงพูดคมชัด สดใส เป็นธรรมชาติที่สุด</li>
+                <li>
+                  รองรับ <strong className="text-amber-300">สำเนียงภาษาถิ่นแท้ 4 ภาค</strong>: ปักษ์ใต้ (แหลงใต้), เหนือ (คำเมือง), อีสาน, กลาง พร้อม AI ถอดสำเนียงอัตโนมัติ
+                </li>
+                <li>
+                  เลือกได้ทั้ง <strong className="text-slate-200">เสียงผู้หญิง</strong> และ <strong className="text-slate-200">เสียงผู้ชาย</strong> แยกเนื้อเสียงชัดเจนทุกคาแรคเตอร์
+                </li>
+                <li>
+                  ไฟล์เสียง <strong className="text-slate-200">.WAV คุณภาพสตูดิโอ</strong> ตรงกับเสียงที่กดฟัง 100% ทั้งสำเนียง ความเร็ว และดนตรีประกอบ
+                </li>
+                <li>
+                  ปรับความเร็วแบบคงโทนเสียงธรรมชาติ (Pitch-Preserving WSOLA): <strong>ช้า (0.75x)</strong>, <strong>ปกติ (1.0x)</strong>, <strong>เร็ว (1.35x)</strong>
+                </li>
               </ul>
             </div>
           </div>
         </div>
 
-        {/* Bottom Section: History of Generated Clips with Instant Download */}
+        {/* Bottom Section: History of Generated Clips */}
         <HistoryDrawer
           history={history}
           onSelectClip={(clip) => {
+            rawSpeechBufferRef.current = null;
             setCurrentAudioUrl(clip.audioUrl);
             setCurrentAudioBase64(clip.audioBase64 || null);
             setCurrentClipTitle(clip.title);
+            setCurrentSpokenText(clip.spokenText || clip.text);
+            setCurrentDialectLabel(clip.dialectLabel || null);
             setSelectedVoice(clip.voiceName);
+            const vObj = VOICES.find((v) => v.id === clip.voiceName);
+            if (vObj?.region) setCurrentRegion(vObj.region);
             handleSpeedPresetChange(clip.speed, clip.speedRate);
           }}
           onClearHistory={() => setHistory([])}
@@ -813,7 +852,7 @@ export default function App() {
         }}
       />
 
-      {/* Code Export Modal (โค้ด HTML, CSS, JavaScript สำหรับนำไปใช้งานต่อ) */}
+      {/* Code Export Modal */}
       <CodeExportModal
         isOpen={isCodeModalOpen}
         onClose={() => setIsCodeModalOpen(false)}
@@ -821,7 +860,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
-        <p>AI Voiceover Studio • ระบบสร้างเสียงพากย์ภาษาไทยด้วย AI • พากย์เสียงผู้ชาย เสียงผู้หญิง ปรับความเร็ว ดาวน์โหลด .wav</p>
+        <p>AI Voiceover Studio • ระบบสร้างเสียงพากย์ภาษาไทย 4 ภาคด้วย AI • พากย์เสียงผู้ชาย เสียงผู้หญิง ปรับความเร็ว ดาวน์โหลด .wav</p>
       </footer>
     </div>
   );

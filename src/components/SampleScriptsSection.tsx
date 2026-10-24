@@ -90,11 +90,18 @@ export const SampleScriptsSection: React.FC<SampleScriptsSectionProps> = ({
     });
   }, [selectedCategory, searchQuery]);
 
-  // Handle Quick Speech Preview using browser speech synthesis
-  const handleQuickListen = (e: React.MouseEvent, sample: SampleScript) => {
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const sampleAudioCacheRef = useRef<Map<string, string>>(new Map());
+
+  // Handle Quick Speech Preview using authentic Gemini Studio TTS (with in-memory cache)
+  const handleQuickListen = async (e: React.MouseEvent, sample: SampleScript) => {
     e.stopPropagation();
 
     if (playingSampleId === sample.id) {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
@@ -102,27 +109,59 @@ export const SampleScriptsSection: React.FC<SampleScriptsSectionProps> = ({
       return;
     }
 
-    if (!('speechSynthesis' in window)) {
-      alert('เบราว์เซอร์ของคุณไม่รองรับการจำลองเสียงพรีวิวในเครื่อง');
-      return;
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
 
-    window.speechSynthesis.cancel();
-    // Clean SFX tags for clean reading preview
-    const cleanSpeech = sample.text.replace(/\[SFX:[^\]]+\]/g, '').replace(/<[^>]+>/g, '').trim();
-    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
-    utterance.lang = 'th-TH';
-    utterance.rate = sample.recommendedSpeed === 'fast' ? 1.25 : sample.recommendedSpeed === 'slow' ? 0.8 : 1.0;
-
-    utterance.onend = () => {
-      setPlayingSampleId(null);
-    };
-    utterance.onerror = () => {
-      setPlayingSampleId(null);
-    };
-
     setPlayingSampleId(sample.id);
-    window.speechSynthesis.speak(utterance);
+    const cleanSpeech = sample.text.replace(/\[SFX:[^\]]+\]/g, '').replace(/<[^>]+>/g, '').trim();
+
+    try {
+      let cachedUrl = sampleAudioCacheRef.current.get(sample.id);
+      if (!cachedUrl) {
+        const res = await fetch('/api/tts/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: cleanSpeech,
+            voiceName: sample.recommendedVoice,
+            speed: sample.recommendedSpeed,
+            autoTranslate: true,
+          }),
+        });
+        const data = await res.json();
+        if (data.audioBase64) {
+          cachedUrl = `data:audio/wav;base64,${data.audioBase64}`;
+          sampleAudioCacheRef.current.set(sample.id, cachedUrl);
+        }
+      }
+
+      if (cachedUrl) {
+        const audio = new Audio(cachedUrl);
+        previewAudioRef.current = audio;
+        audio.onended = () => setPlayingSampleId(null);
+        audio.onerror = () => setPlayingSampleId(null);
+        await audio.play();
+        return;
+      }
+    } catch (err) {
+      console.warn('Sample studio TTS preview fallback:', err);
+    }
+
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+      utterance.lang = 'th-TH';
+      utterance.rate = sample.recommendedSpeed === 'fast' ? 1.2 : sample.recommendedSpeed === 'slow' ? 0.85 : 1.0;
+      utterance.onend = () => setPlayingSampleId(null);
+      utterance.onerror = () => setPlayingSampleId(null);
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setPlayingSampleId(null);
+    }
   };
 
   const handleSelectSample = (sample: SampleScript) => {

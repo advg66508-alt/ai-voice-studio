@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StylePreset, VoiceName } from '../types/voice';
 import { STYLE_PRESETS, VOICES } from '../data/presets';
-import { Palette, ChevronDown, Check, Sparkles, SlidersHorizontal, Heart, ShieldAlert } from 'lucide-react';
+import { Palette, ChevronDown, Check, Sparkles, SlidersHorizontal, Heart, ShieldAlert, Volume2 } from 'lucide-react';
+import { playPreviewAudio } from '../utils/audioPreviewPlayer';
 
 interface StyleSelectorProps {
   selectedStyleId: string;
@@ -23,10 +24,29 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'female' | 'general'>('female');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [playingStyleId, setPlayingStyleId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const currentStyleObj =
     STYLE_PRESETS.find((s) => s.id === selectedStyleId) || STYLE_PRESETS[0];
+
+  const handlePlayStyleSample = (styleId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const sampleId = 'style_' + styleId;
+    const presetObj = STYLE_PRESETS.find((s) => s.id === styleId);
+    const fallbackVoice: VoiceName = presetObj?.category === 'female' ? 'Kore' : 'Puck';
+    const fallbackText = presetObj
+      ? `ตัวอย่างสไตล์ ${presetObj.title} ${presetObj.description}`
+      : 'สวัสดีค่ะ ตัวอย่างเสียงพากย์สไตล์นี้ค่ะ';
+    playPreviewAudio(
+      sampleId,
+      (isPlaying) => {
+        setPlayingStyleId(isPlaying ? sampleId : null);
+      },
+      fallbackText,
+      fallbackVoice
+    );
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -103,14 +123,30 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowCustomInput(!showCustomInput)}
-          className="text-xs flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>{showCustomInput ? 'ซ่อนพิมพ์เอง' : 'พิมพ์สไตล์เอง'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handlePlayStyleSample(selectedStyleId)}
+            className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold transition-all cursor-pointer shadow-sm active:scale-95 ${
+              playingStyleId === `style_${selectedStyleId}`
+                ? 'bg-rose-500 text-white border-rose-400 shadow-rose-500/30'
+                : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/40'
+            }`}
+            title="กดเพื่อทดลองฟังตัวอย่างเสียงของสไตล์นี้"
+          >
+            <Volume2 className={`w-3.5 h-3.5 ${playingStyleId === `style_${selectedStyleId}` ? 'animate-bounce text-white' : 'text-rose-400'}`} />
+            <span>{playingStyleId === `style_${selectedStyleId}` ? 'กำลังเล่นตัวอย่างสไตล์...' : '🔊 ทดลองฟังเสียงสไตล์นี้'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCustomInput(!showCustomInput)}
+            className="text-xs flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>{showCustomInput ? 'ซ่อนพิมพ์เอง' : 'พิมพ์สไตล์เอง'}</span>
+          </button>
+        </div>
       </div>
 
       {/* คำอธิบายวิธีใช้งานสไตล์เสียง */}
@@ -297,10 +333,10 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
           {visiblePresets.map((preset) => {
             const isSelected = selectedStyleId === preset.id;
             const isFemale = preset.category === 'female';
+            const isPlayingThis = playingStyleId === `style_${preset.id}`;
             return (
-              <button
+              <div
                 key={preset.id}
-                type="button"
                 onClick={() => handleSelectStyle(preset)}
                 className={`text-left p-3 rounded-xl border-2 transition-all cursor-pointer relative shadow-sm flex flex-col justify-between ${
                   isSelected
@@ -315,13 +351,19 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xl">{preset.icon}</span>
-                    {isSelected && (
-                      <div
-                        className={`w-2 h-2 rounded-full shadow-sm animate-pulse ${
-                          isFemale ? 'bg-rose-400 shadow-rose-400' : 'bg-amber-400 shadow-amber-400'
-                        }`}
-                      />
-                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => handlePlayStyleSample(preset.id, e)}
+                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition-all cursor-pointer border ${
+                        isPlayingThis
+                          ? 'bg-rose-500 text-white border-rose-400 animate-pulse'
+                          : 'bg-slate-900/80 hover:bg-rose-500/25 text-slate-300 hover:text-rose-200 border-slate-700'
+                      }`}
+                      title={`ทดลองฟังสไตล์ ${preset.title}`}
+                    >
+                      <Volume2 className="w-3 h-3" />
+                      <span>{isPlayingThis ? 'หยุด' : 'ฟัง'}</span>
+                    </button>
                   </div>
                   <div className="font-bold text-xs text-slate-100 truncate">
                     {preset.title}
@@ -330,7 +372,7 @@ export const StyleSelector: React.FC<StyleSelectorProps> = ({
                 <p className="text-[10px] text-slate-400 line-clamp-2 mt-1.5 leading-snug">
                   {preset.description}
                 </p>
-              </button>
+              </div>
             );
           })}
         </div>

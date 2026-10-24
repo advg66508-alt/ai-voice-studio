@@ -9,10 +9,10 @@ import {
   Gauge,
   Sparkles,
   CheckCircle2,
-  Share2,
   Music,
   Activity,
   BarChart3,
+  MessageSquareQuote,
 } from 'lucide-react';
 import { AudioSpectrumVisualizer } from './AudioSpectrumVisualizer';
 import { AudioWaveformChart } from './AudioWaveformChart';
@@ -22,6 +22,10 @@ interface AudioPlayerProps {
   audioBase64?: string | null;
   title?: string;
   voiceName?: string;
+  spokenText?: string | null;
+  dialectLabel?: string | null;
+  isMixing?: boolean;
+  generationId?: number;
   speedRate: number;
   onSpeedRateChange: (rate: number) => void;
   speedPreset: 'slow' | 'normal' | 'fast';
@@ -35,14 +39,18 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   audioBase64,
   title = 'เสียงพากย์ AI',
   voiceName = 'Kore',
+  spokenText,
+  dialectLabel,
+  isMixing = false,
+  generationId = 0,
   speedRate,
-  onSpeedRateChange,
-  speedPreset,
   onSpeedPresetChange,
+  speedPreset,
   genderLabel = 'เสียงผู้หญิง',
   ambientLabel,
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastAutoPlayedGenRef = useRef<number>(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -51,22 +59,34 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [activeVisualizerTab, setActiveVisualizerTab] = useState<'recharts' | 'spectrum'>('recharts');
 
-  // Sync playbackRate to audio element
+  // IMPORTANT: speedRate is already baked into audioUrl via pitch-preserving WSOLA in audioMixer.ts!
+  // Keeping playbackRate === 1.0 guarantees 100% identical audio between browser Play and downloaded .wav!
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.playbackRate = speedRate;
+      audioRef.current.playbackRate = 1.0;
     }
-  }, [speedRate]);
+  }, [audioUrl, speedRate]);
 
-  // Reset state when audioUrl changes
+  // Reset timeline when audioUrl updates, and auto-play when a brand-new generation completes
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
-    if (audioRef.current) {
+    if (audioRef.current && audioUrl) {
       audioRef.current.currentTime = 0;
-      audioRef.current.playbackRate = speedRate;
+      audioRef.current.playbackRate = 1.0;
+
+      if (generationId > 0 && generationId !== lastAutoPlayedGenRef.current) {
+        lastAutoPlayedGenRef.current = generationId;
+        audioRef.current
+          .play()
+          .then(() => setIsPlaying(true))
+          .catch(() => {
+            // Autoplay blocked by browser policy; user can click Play button
+            setIsPlaying(false);
+          });
+      }
     }
-  }, [audioUrl, speedRate]);
+  }, [audioUrl, generationId]);
 
   const togglePlay = () => {
     if (!audioRef.current || !audioUrl) return;
@@ -74,6 +94,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
+      audioRef.current.playbackRate = 1.0;
       audioRef.current
         .play()
         .then(() => setIsPlaying(true))
@@ -90,7 +111,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       setDuration(audioRef.current.duration || 0);
-      audioRef.current.playbackRate = speedRate;
+      audioRef.current.playbackRate = 1.0;
     }
   };
 
@@ -110,9 +131,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const handleRestart = () => {
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
+      audioRef.current.playbackRate = 1.0;
       setCurrentTime(0);
-      audioRef.current.play();
-      setIsPlaying(true);
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setIsPlaying(false));
     }
   };
 
@@ -144,11 +168,13 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  // Download audio file function
+  // Download audio file function (downloads the exact WSOLA speed-scaled + dialect-voiced + ambient-mixed WAV)
   const handleDownload = () => {
     if (!audioUrl) return;
 
-    const fileName = `พากย์เสียงAI_${genderLabel.replace(/\s+/g, '_')}_${voiceName}_ความเร็ว${speedPreset}_${Date.now()}.wav`;
+    const cleanVoice = voiceName.replace(/[^a-zA-Z0-9ก-๙_-]/g, '_').replace(/_+/g, '_');
+    const speedThai = speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว';
+    const fileName = `พากย์เสียงAI_${cleanVoice}_ความเร็ว${speedThai}_${Date.now()}.wav`;
 
     const link = document.createElement('a');
     link.href = audioUrl;
@@ -170,15 +196,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         <div>
           <p className="font-semibold text-slate-300 text-sm mb-1">ยังไม่มีเสียงพากย์ที่สร้าง</p>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            ทำตามขั้นตอนด้านซ้าย: เลือกภาษาถิ่น & เสียงพากย์, พิมพ์ข้อความ แล้วกดปุ่ม &quot;สร้างเสียงพากย์ AI&quot;
+            ทำตามขั้นตอนด้านซ้าย: เลือกภาษาถิ่น & เสียงพากย์ (เช่น สาวนุ้ย แหลงใต้), พิมพ์ข้อความ แล้วกดปุ่ม &quot;สร้างเสียงพากย์ AI&quot;
           </p>
         </div>
         <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs text-left max-w-md mx-auto space-y-1">
           <div className="font-semibold flex items-center gap-1.5">
-            <span>💡 คำอธิบายเครื่องเล่น & Audio Spectrum Analyzer:</span>
+            <span>💡 คำอธิบายเครื่องเล่น & ไฟล์ดาวน์โหลด (.WAV):</span>
           </div>
           <p className="text-[11px] text-amber-200/90 leading-relaxed">
-            เมื่อคุณกดปุ่มสร้างเสียงพากย์ เครื่องเล่นนี้จะปรากฏพร้อม <strong className="text-white">Audio Spectrum Analyzer</strong> แสดงแถบความถี่เสียงแบบ Real-time ด้วย Web Audio API คุณสามารถสลับโหมดแท่งความถี่ คลื่นนีออน หรือดอทเมทริกซ์ และคลิกปุ่ม <strong className="text-white">ดาวน์โหลดไฟล์เสียง (.WAV)</strong> ได้ทันที!
+            เมื่อสร้างเสร็จ เสียงที่คุณกดฟังในเครื่องเล่นนี้และไฟล์ <strong className="text-white">.WAV ที่กดดาวน์โหลด</strong> จะตรงกับสำเนียงภาษาถิ่น (เหนือ/อีสาน/ใต้/กลาง) สไตล์อารมณ์ และความเร็วที่คุณเลือก 100% ทุกประการ!
           </p>
         </div>
       </div>
@@ -202,15 +228,20 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       {/* Header Info */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold shrink-0">
             <Sparkles className="w-5 h-5 animate-spin-slow" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-slate-100 text-sm">{title}</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 font-medium">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
                 {genderLabel} • {voiceName}
               </span>
+              {dialectLabel && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold">
+                  🗣️ {dialectLabel}
+                </span>
+              )}
               {ambientLabel && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-500/30 font-medium flex items-center gap-1">
                   <Music className="w-3 h-3" />
@@ -219,18 +250,23 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               )}
             </div>
             <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-              <span>ความเร็ว: {speedRate.toFixed(2)}x ({speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว'})</span>
+              <span>
+                ความเร็วไฟล์เสียง: {speedRate.toFixed(2)}x ({speedPreset === 'slow' ? 'ช้า' : speedPreset === 'normal' ? 'ปกติ' : 'เร็ว'})
+              </span>
               <span>•</span>
-              <span className="text-emerald-400">พร้อมดาวน์โหลด (.wav)</span>
+              <span className="text-emerald-400">
+                {isMixing ? 'กำลังอัปเดตไฟล์ .wav...' : 'ไฟล์ .wav พร้อมดาวน์โหลด (ตรงตามที่เล่น 100%)'}
+              </span>
             </p>
           </div>
         </div>
 
-        {/* PRIMARY DOWNLOAD BUTTON (Prominently featured per user's request) */}
+        {/* PRIMARY DOWNLOAD BUTTON */}
         <button
           type="button"
           onClick={handleDownload}
-          className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg cursor-pointer ${
+          disabled={isMixing}
+          className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg cursor-pointer disabled:opacity-60 ${
             downloadSuccess
               ? 'bg-emerald-600 text-white shadow-emerald-900/40 ring-2 ring-emerald-400'
               : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-950/40 hover:scale-[1.02] active:scale-[0.98]'
@@ -251,7 +287,23 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         </button>
       </div>
 
-      {/* Visualizer Mode Tabs: Recharts Data Visualization vs Real-time Spectrum */}
+      {/* Actual Spoken Dialect Transcript Display */}
+      {spokenText && (
+        <div className="mb-4 p-3 rounded-xl bg-slate-950/85 border border-amber-500/25 space-y-1">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="font-bold text-amber-300 flex items-center gap-1.5">
+              <MessageSquareQuote className="w-3.5 h-3.5 text-amber-400" />
+              <span>บทพูดที่ออกเสียงจริงในไฟล์เสียง ({dialectLabel || voiceName}):</span>
+            </span>
+            <span className="text-[10px] text-emerald-400 font-mono">✓ บันทึกลงไฟล์ .wav แล้ว</span>
+          </div>
+          <p className="text-xs text-slate-200 leading-relaxed font-medium">
+            &ldquo;{spokenText}&rdquo;
+          </p>
+        </div>
+      )}
+
+      {/* Visualizer Mode Tabs */}
       <div className="mb-3 flex items-center justify-between border-b border-slate-800/80 pb-2">
         <div className="flex items-center gap-1.5">
           <button
@@ -264,7 +316,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
-            <span>📊 ภาพรวมรูปคลื่นเสียง (Recharts Waveform)</span>
+            <span>📊 ภาพรวมรูปคลื่นเสียง (Waveform)</span>
           </button>
           <button
             type="button"
@@ -281,7 +333,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         </div>
 
         <span className="text-[10px] text-slate-500 font-mono hidden sm:inline-block">
-          {activeVisualizerTab === 'recharts' ? 'Recharts Data Viz' : 'Web Audio API'}
+          24kHz Studio WAV
         </span>
       </div>
 
@@ -363,7 +415,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             <button
               type="button"
               onClick={toggleMute}
-              className="text-slate-400 hover:text-slate-200"
+              className="text-slate-400 hover:text-slate-200 cursor-pointer"
             >
               {isMuted || volume === 0 ? (
                 <VolumeX className="w-4 h-4" />
@@ -383,7 +435,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           </div>
         </div>
 
-        {/* Realtime Speed Controller on player */}
+        {/* Realtime Speed Controller on player (also updates downloadable WAV!) */}
         <div className="flex items-center gap-1.5 bg-slate-800/80 p-1 rounded-xl border border-slate-700/60">
           <span className="text-[11px] text-slate-400 font-medium px-1 flex items-center gap-1">
             <Gauge className="w-3 h-3 text-amber-400" /> ความเร็ว:
@@ -391,7 +443,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           <button
             type="button"
             onClick={() => onSpeedPresetChange('slow', 0.75)}
-            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
               speedPreset === 'slow'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
                 : 'text-slate-400 hover:text-slate-200'
@@ -402,7 +454,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           <button
             type="button"
             onClick={() => onSpeedPresetChange('normal', 1.0)}
-            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
               speedPreset === 'normal'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                 : 'text-slate-400 hover:text-slate-200'
@@ -413,7 +465,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           <button
             type="button"
             onClick={() => onSpeedPresetChange('fast', 1.35)}
-            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
               speedPreset === 'fast'
                 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                 : 'text-slate-400 hover:text-slate-200'
@@ -428,8 +480,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs flex items-start gap-2.5">
         <span className="text-base shrink-0">💡</span>
         <div className="space-y-0.5 text-[11px] leading-relaxed">
-          <strong className="text-emerald-300 font-semibold block">คำอธิบายวิธีใช้งานและ Audio Spectrum Analyzer:</strong>
-          <span>กดปุ่มเล่น (▶) เพื่อฟังเสียงพากย์และชมความถี่เสียงตอบสนองแบบสด <strong className="text-amber-300">(Real-time Audio Spectrum)</strong> สามารถสลับโหมดแท่งความถี่ คลื่นนีออน หรือดอท และคลิกปุ่มสีทอง <strong className="text-white">&quot;ดาวน์โหลดไฟล์เสียง (.wav)&quot;</strong> ด้านบน เพื่อนำไฟล์เสียงคุณภาพสูง 24kHz ไปตัดต่อวิดีโอได้ทันที</span>
+          <strong className="text-emerald-300 font-semibold block">เสียงที่เล่นและไฟล์ที่ดาวน์โหลดตรงกัน 100%:</strong>
+          <span>ระบบประมวลผลสำเนียงภาษาถิ่น อารมณ์ความเร็วแบบคงระดับเสียงธรรมชาติ (Pitch-Preserving WSOLA) และเพลงบรรยากาศลงในไฟล์ <strong className="text-white">.WAV</strong> โดยตรง เมื่อกดดาวน์โหลดจะได้เสียงเดียวกับที่คุณกดฟังทุกประการ</span>
         </div>
       </div>
     </div>

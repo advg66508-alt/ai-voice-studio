@@ -570,56 +570,178 @@ export async function generateAmbientBuffer(
 }
 
 /**
- * Mix Voiceover AudioBuffer with Ambient Track and Sound Effects (SFX)
+ * Pitch-Preserving Time-Stretching using Waveform Similarity Overlap-Add (WSOLA).
+ * Scales speech duration by 1 / speedRate while keeping vocal pitch (F0) and formants 100% natural,
+ * so the exported .wav file matches the user's selected speed (0.75x, 1.0x, 1.35x, etc.) without chipmunk distortion.
+ */
+export function timeStretchSpeechWSOLA(
+  inputBuffer: AudioBuffer,
+  speedRate: number
+): AudioBuffer {
+  const clampedRate = Math.max(0.5, Math.min(2.0, speedRate || 1.0));
+  if (Math.abs(clampedRate - 1.0) <= 0.02) {
+    return inputBuffer;
+  }
+
+  const sampleRate = inputBuffer.sampleRate;
+  const numChannels = inputBuffer.numberOfChannels;
+  const inLength = inputBuffer.length;
+  const outLength = Math.max(256, Math.round(inLength / clampedRate));
+
+  // 36ms Hann window with 50% overlap (Constant-Overlap-Add property: w[n] + w[n + W/2] === 1.0)
+  let winSize = Math.floor(sampleRate * 0.036);
+  if (winSize % 2 !== 0) winSize -= 1;
+  winSize = Math.max(256, winSize);
+  const hopOut = winSize / 2;
+  const searchDelta = Math.floor(sampleRate * 0.010); // +/- 10ms glottal pitch alignment window
+  const corrLen = Math.min(hopOut, Math.floor(sampleRate * 0.012));
+
+  if (inLength <= winSize * 2) {
+    return inputBuffer;
+  }
+
+  const hann = new Float32Array(winSize);
+  for (let n = 0; n < winSize; n++) {
+    hann[n] = 0.5 * (1 - Math.cos((2 * Math.PI * n) / winSize));
+  }
+
+  const inChannels: Float32Array[] = [];
+  const outChannels: Float32Array[] = [];
+  const normWeight = new Float32Array(outLength);
+
+  for (let c = 0; c < numChannels; c++) {
+    inChannels.push(inputBuffer.getChannelData(c));
+    outChannels.push(new Float32Array(outLength));
+  }
+
+  const refChannel = inChannels[0];
+  let prevInPos = 0;
+  let outPos = 0;
+
+  while (outPos < outLength - hopOut) {
+    let bestInPos = 0;
+
+    if (outPos === 0) {
+      bestInPos = 0;
+    } else {
+      const targetInPos = Math.round(outPos * clampedRate);
+      const naturalContPos = Math.min(inLength - winSize, prevInPos + hopOut);
+      const minCand = Math.max(0, targetInPos - searchDelta);
+      const maxCand = Math.min(inLength - winSize, targetInPos + searchDelta);
+
+      if (maxCand <= minCand) {
+        bestInPos = Math.max(0, Math.min(inLength - winSize, targetInPos));
+      } else {
+        let bestScore = -Infinity;
+        bestInPos = Math.max(0, Math.min(inLength - winSize, targetInPos));
+        // Search in 2-sample steps for optimal glottal phase continuity
+        for (let cand = minCand; cand <= maxCand; cand += 2) {
+          let dot = 0;
+          let energy = 1e-7;
+          for (let k = 0; k < corrLen; k += 2) {
+            const a = refChannel[naturalContPos + k];
+            const b = refChannel[cand + k];
+            dot += a * b;
+            energy += b * b;
+          }
+          const score = dot / Math.sqrt(energy);
+          if (score > bestScore) {
+            bestScore = score;
+            bestInPos = cand;
+          }
+        }
+      }
+    }
+
+    const writeCount = Math.min(winSize, outLength - outPos, inLength - bestInPos);
+    for (let c = 0; c < numChannels; c++) {
+      const src = inChannels[c];
+      const dst = outChannels[c];
+      for (let n = 0; n < writeCount; n++) {
+        dst[outPos + n] += src[bestInPos + n] * hann[n];
+      }
+    }
+    for (let n = 0; n < writeCount; n++) {
+      normWeight[outPos + n] += hann[n];
+    }
+
+    prevInPos = bestInPos;
+    outPos += hopOut;
+  }
+
+  // Normalize COLA boundary edges smoothly
+  for (let c = 0; c < numChannels; c++) {
+    const dst = outChannels[c];
+    for (let i = 0; i < outLength; i++) {
+      if (normWeight[i] > 0.05) {
+        dst[i] /= normWeight[i];
+      }
+    }
+  }
+
+  const offlineOut = new OfflineAudioContext(numChannels, outLength, sampleRate);
+  const stretchedBuffer = offlineOut.createBuffer(numChannels, outLength, sampleRate);
+  for (let c = 0; c < numChannels; c++) {
+    stretchedBuffer.getChannelData(c).set(outChannels[c]);
+  }
+  return stretchedBuffer;
+}
+
+/**
+ * Mix Voiceover AudioBuffer with Pitch-Preserving Speed, Ambient Track, and Sound Effects (SFX)
  */
 export async function mixVoiceAndAmbient(
   speechBuffer: AudioBuffer,
   ambientType: AmbientSoundType,
   ambientVolume = 0.2,
   sampleRate = 44100,
-  scriptWithSFX?: string
+  scriptWithSFX?: string,
+  speedRate = 1.0
 ): Promise<{ mixedBuffer: AudioBuffer; wavBlob: Blob; audioUrl: string }> {
-  const duration = speechBuffer.duration + 0.8; // short tail for natural release
+  // 1. Apply pitch-preserving WSOLA speed scaling so Play and Download WAV have the exact chosen speed
+  const scaledSpeechBuffer = timeStretchSpeechWSOLA(speechBuffer, speedRate);
+  const targetSampleRate = scaledSpeechBuffer.sampleRate || sampleRate;
 
   // Parse SFX markers
   const sfxMarkers = scriptWithSFX ? parseSFXMarkers(scriptWithSFX) : [];
 
-  // If no ambient and no SFX, return pure speech directly
+  // If no ambient and no SFX, export scaled speech directly as crisp RIFF WAV
   if ((ambientType === 'none' || ambientVolume <= 0) && sfxMarkers.length === 0) {
-    const wavBlob = audioBufferToWav(speechBuffer);
+    const wavBlob = audioBufferToWav(scaledSpeechBuffer);
     const audioUrl = URL.createObjectURL(wavBlob);
-    return { mixedBuffer: speechBuffer, wavBlob, audioUrl };
+    return { mixedBuffer: scaledSpeechBuffer, wavBlob, audioUrl };
   }
+
+  const duration = scaledSpeechBuffer.duration + 0.8; // short tail for natural release
 
   const ambientBuffer =
     ambientType !== 'none' && ambientVolume > 0
-      ? await generateAmbientBuffer(ambientType, duration, sampleRate)
+      ? await generateAmbientBuffer(ambientType, duration, targetSampleRate)
       : null;
 
   const offlineCtx = new OfflineAudioContext(
     2,
-    Math.ceil(sampleRate * duration),
-    sampleRate
+    Math.ceil(targetSampleRate * duration),
+    targetSampleRate
   );
 
-  // 1. Voiceover speech track
+  // 1. Voiceover speech track (already pitch-preserving speed-scaled)
   const speechSource = offlineCtx.createBufferSource();
-  speechSource.buffer = speechBuffer;
+  speechSource.buffer = scaledSpeechBuffer;
   const speechGain = offlineCtx.createGain();
-  speechGain.gain.value = 1.0;
+  speechGain.gain.value = 1.02;
   speechSource.connect(speechGain);
   speechGain.connect(offlineCtx.destination);
   speechSource.start(0);
 
-  // 2. Ambient BGM track
+  // 2. Ambient BGM track (plays at natural 1.0x musical tempo)
   if (ambientBuffer) {
     const ambientSource = offlineCtx.createBufferSource();
     ambientSource.buffer = ambientBuffer;
     const ambientGain = offlineCtx.createGain();
-    ambientGain.gain.setValueAtTime(ambientVolume, 0);
     ambientGain.gain.setValueAtTime(0.001, 0);
-    ambientGain.gain.linearRampToValueAtTime(ambientVolume, 0.4);
-    ambientGain.gain.setValueAtTime(ambientVolume, Math.max(0.5, duration - 1.2));
+    ambientGain.gain.linearRampToValueAtTime(ambientVolume, 0.35);
+    ambientGain.gain.setValueAtTime(ambientVolume, Math.max(0.4, duration - 1.0));
     ambientGain.gain.linearRampToValueAtTime(0.001, duration);
 
     ambientSource.connect(ambientGain);
@@ -630,18 +752,17 @@ export async function mixVoiceAndAmbient(
   // 3. Insert SFX at their specific timeline timestamps
   for (const marker of sfxMarkers) {
     try {
-      const sfxBuf = await generateSFXBuffer(marker.type, sampleRate);
+      const sfxBuf = await generateSFXBuffer(marker.type, targetSampleRate);
       if (sfxBuf) {
-        // Calculate timestamp based on relative position
         const targetTime = Math.min(
-          Math.max(0.05, marker.relativePosition * speechBuffer.duration),
+          Math.max(0.05, marker.relativePosition * scaledSpeechBuffer.duration),
           Math.max(0.1, duration - 1.0)
         );
 
         const sfxSource = offlineCtx.createBufferSource();
         sfxSource.buffer = sfxBuf;
         const sfxGain = offlineCtx.createGain();
-        sfxGain.gain.value = 0.85; // SFX should be crisp and audible
+        sfxGain.gain.value = 0.85;
 
         sfxSource.connect(sfxGain);
         sfxGain.connect(offlineCtx.destination);

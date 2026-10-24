@@ -6,6 +6,7 @@ import {
   DIALECT_DEMO_PHRASES,
   RegionalMeta,
   getDefaultScriptForRegionAndGender,
+  isDefaultWelcomeScript,
 } from '../utils/dialectTranslator';
 import { VOICES } from '../data/presets';
 import {
@@ -18,9 +19,9 @@ import {
   RefreshCw,
   Copy,
   Play,
-  RotateCcw,
 } from 'lucide-react';
 import { speakWithBrowserSpeech } from '../utils/speechSynthEngine';
+import { playPreviewAudio, stopPreviewAudio } from '../utils/audioPreviewPlayer';
 
 interface DialectSelectorProps {
   currentRegion: RegionType;
@@ -72,11 +73,10 @@ export const DialectSelector: React.FC<DialectSelectorProps> = ({
     setCloudTranslatedText(null);
   }, [currentScriptText, currentRegion]);
 
-  // When changing region: update region, select matching voice, and IMMEDIATELY convert script text!
+  // When changing region: update region, select matching voice, and adapt greeting if default
   const handleRegionChange = (newRegion: RegionType) => {
     onSelectRegion(newRegion);
 
-    // Find matching voice in that region with same gender preference
     const regionVoices = VOICES.filter((v) => (v.region || 'central') === newRegion);
     let chosenVoice = currentVoiceObj;
     if (regionVoices.length > 0) {
@@ -87,26 +87,16 @@ export const DialectSelector: React.FC<DialectSelectorProps> = ({
 
     const targetGender = chosenVoice.gender === 'male' ? 'male' : 'female';
 
-    // If text is empty or is the default welcome greeting, set the region's authentic sample greeting
-    const isDefaultWelcome =
-      !currentScriptText.trim() ||
-      currentScriptText.includes('ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI') ||
-      currentScriptText.includes('สุมาเต๊อะกั๊บ') ||
-      currentScriptText.includes('สวัสดีเจ้า ยินดีต้อนฮับสู่เจียงใหม่') ||
-      currentScriptText.includes('สะบายดีเด้อครับพี่น้อง') ||
-      currentScriptText.includes('สวัสดีจ้าพี่น้อง มาพ้อกับน้องคำแพง') ||
-      currentScriptText.includes('สวัสดีคับพี่น้องชาวใต้') ||
-      currentScriptText.includes('สวัสดีค่ะพี่น้อง วันนี้น้องนุ้ยมาแหลง');
-
-    if (isDefaultWelcome) {
+    if (isDefaultWelcomeScript(currentScriptText)) {
       const defaultScript = getDefaultScriptForRegionAndGender(newRegion, targetGender);
       onApplyTranslatedScript(defaultScript);
       setJustAdaptedRegion(REGIONAL_METAS[newRegion].nameThai);
       setTimeout(() => setJustAdaptedRegion(null), 3000);
     } else {
-      // User typed custom text: keep it intact! Show toast indicating voice is selected
-      setJustAdaptedRegion(`เลือกสำเนียง ${REGIONAL_METAS[newRegion].nameThai} เรียบร้อย (คงข้อความที่คุณพิมพ์ไว้)`);
-      setTimeout(() => setJustAdaptedRegion(null), 3000);
+      setJustAdaptedRegion(
+        `${REGIONAL_METAS[newRegion].nameThai} (ระบบจะถอดสำเนียงเป็นภาคนี้อัตโนมัติเมื่อกดพากย์)`
+      );
+      setTimeout(() => setJustAdaptedRegion(null), 3500);
     }
   };
 
@@ -136,41 +126,62 @@ export const DialectSelector: React.FC<DialectSelectorProps> = ({
     }
   };
 
-  // Test / preview speech with specific voice
+  // Test voice using real Gemini studio audio preview from server
   const handleTestVoice = (voice: VoiceOption, customSnippet?: string) => {
     setPlayingVoiceId(voice.id);
 
-    // Determine authentic greeting / sample text for that specific voice
-    let sampleText = customSnippet;
-    if (!sampleText) {
-      if (voice.id === 'Lanna_Female') {
-        sampleText = 'สวัสดีเจ้า ยินดีต้อนฮับสู่เจียงใหม่เน้อเจ้า บัวตองอู้กำเมืองม่วนๆ ลำขนาดเน้อเจ้า';
-      } else if (voice.id === 'Lanna_Male') {
-        sampleText = 'สุมาเต๊อะกั๊บ ยินดีจ้าดนักเน้อครับ หนานเมืองยินดีต้อนฮับ อู้กำเมืองม่วนๆ กั๊บ';
-      } else if (voice.id === 'Isan_Female') {
-        sampleText = 'สวัสดีจ้าพี่น้อง มาพ้อกับน้องคำแพงมื้อนี้ แซ่บหลาย ตาฮักคักอีหลีเด้อจ้า';
-      } else if (voice.id === 'Isan_Male') {
-        sampleText = 'สะบายดีเด้อครับพี่น้อง มื้อนี้ทิดทศพามาม่วนซื่น เว้าอีสานคักหลายเด้อครับ';
-      } else if (voice.id === 'Southern_Female') {
-        sampleText = 'สวัสดีค่ะพี่น้อง วันนี้น้องนุ้ยมาแหลงให้ฟัง หรอยจังหู้นิ หรอยอย่างแรงนิค่ะ';
-      } else if (voice.id === 'Southern_Male') {
-        sampleText = 'สวัสดีคับพี่น้องชาวใต้ บ่าวหลวงมาแหลงใต้หรอยๆ คมเข้มจริงใจคับพี่น้อง';
-      } else {
-        sampleText =
-          voice.gender === 'female'
-            ? 'สวัสดีค่ะ ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI คุณภาพระดับมืออาชีพค่ะ'
-            : 'สวัสดีครับ สตูดิโอพากย์เสียง AI พร้อมสร้างเสียงพากย์คุณภาพเยี่ยมแล้วครับ';
-      }
+    let snippet = customSnippet;
+    if (!snippet) {
+      if (voice.id === 'Lanna_Female') snippet = 'สวัสดีเจ้า ยินดีต้อนฮับสู่เจียงใหม่เน้อเจ้า น้องบัวตองอู้กำเมืองม่วนๆ ลำขนาดเน้อเจ้า';
+      else if (voice.id === 'Lanna_Male') snippet = 'สุมาเต๊อะกั๊บ ยินดีจ้าดนักเน้อครับ อ้ายหนานเมืองยินดีต้อนฮับ อู้กำเมืองม่วนๆ กั๊บ';
+      else if (voice.id === 'Isan_Female') snippet = 'สะบายดีจ้าพี่น้อง มาพ้อกับน้องคำแพงมื้อนี้ ตำบักหุ่งแซ่บหลาย ตาฮักคักอีหลีเด้อจ้า';
+      else if (voice.id === 'Isan_Male') snippet = 'สะบายดีเด้อครับพี่น้อง มื้อนี้อ้ายทิดทศพามาม่วนซื่นโฮแซว เว้าอีสานคักอีหลีเด้อครับ';
+      else if (voice.id === 'Southern_Female') snippet = 'หวัดดีค่ะพี่น้องเหอ วันนี้น้องนุ้ยมาแหลงใต้ให้ฟัง แกงส้มร้านนี้หรอยจังหู้นิ ลองชิมแลตะน้องเหอ';
+      else if (voice.id === 'Southern_Male') snippet = 'หวัดดีคับพี่น้องชาวใต้ พี่บ่าวหลวงมาแหลงใต้หรอยๆ คมเข้มจริงใจ หรอยอย่างแรงนิคับพี่น้อง';
+      else snippet = voice.gender === 'female' ? 'สวัสดีค่ะ ยินดีต้อนรับสู่สตูดิโอพากย์เสียง AI คุณภาพระดับมืออาชีพค่ะ' : 'สวัสดีครับ สตูดิโอพากย์เสียง AI พร้อมสร้างเสียงพากย์คุณภาพเยี่ยมแล้วครับ';
     }
 
-    speakWithBrowserSpeech(sampleText, voice.id, 1.0, () => {
-      setPlayingVoiceId(null);
-    });
+    playPreviewAudio(
+      'voice_' + voice.id,
+      (isPlaying) => {
+        if (!isPlaying) setPlayingVoiceId(null);
+      },
+      snippet,
+      voice.id
+    );
   };
 
-  // Preview speak dialect of the active translated text
-  const handlePreviewSpeech = (textToSpeak: string) => {
+  // Preview speak dialect of the active translated text with real AI TTS
+  const handlePreviewSpeech = async (textToSpeak: string) => {
+    if (!textToSpeak.trim()) return;
+    stopPreviewAudio();
     setIsPlayingPreview(true);
+
+    try {
+      const res = await fetch('/api/tts/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: textToSpeak,
+          voiceName: selectedVoice,
+          speed: 'normal',
+          autoTranslate: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.audioBase64) {
+        const audio = new Audio(`data:audio/wav;base64,${data.audioBase64}`);
+        audio.onended = () => setIsPlayingPreview(false);
+        audio.onerror = () => {
+          speakWithBrowserSpeech(textToSpeak, selectedVoice, 1.0, () => setIsPlayingPreview(false));
+        };
+        await audio.play();
+        return;
+      }
+    } catch (err) {
+      console.warn('Real TTS preview failed, using speech synth fallback:', err);
+    }
+
     speakWithBrowserSpeech(textToSpeak, selectedVoice, 1.0, () => {
       setIsPlayingPreview(false);
     });

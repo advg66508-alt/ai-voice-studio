@@ -1,5 +1,6 @@
 import React from 'react';
 import { DialogueLine, VoiceName } from '../types/voice';
+import { VOICES } from '../data/presets';
 import { Plus, Trash2, Users } from 'lucide-react';
 
 interface MultiSpeakerStudioProps {
@@ -75,7 +76,8 @@ export const MultiSpeakerStudio: React.FC<MultiSpeakerStudioProps> = ({
 
       <div className="space-y-3">
         {dialogues.map((dlg, idx) => {
-          const isFemale = dlg.voiceName === 'Kore';
+          const voiceMeta = VOICES.find((v) => v.id === dlg.voiceName);
+          const isFemale = voiceMeta ? voiceMeta.gender === 'female' : dlg.voiceName === 'Kore';
           return (
             <div
               key={dlg.id || idx}
@@ -87,7 +89,7 @@ export const MultiSpeakerStudio: React.FC<MultiSpeakerStudioProps> = ({
             >
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-base">{isFemale ? '👩' : '👨'}</span>
+                  <span className="text-base">{voiceMeta?.avatarEmoji || (isFemale ? '👩' : '👨')}</span>
                   <input
                     type="text"
                     value={dlg.speaker}
@@ -105,18 +107,30 @@ export const MultiSpeakerStudio: React.FC<MultiSpeakerStudioProps> = ({
                     }
                     className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none"
                   >
-                    <optgroup label="👩 เสียงผู้หญิง (3 คาแรคเตอร์)">
-                      <option value="Kore">👩 โคเร่ (Kore) - อบอุ่น นุ่มนวล</option>
-                      <option value="Mira">🎀 มิรา (Mira) - สดใส คาวาอี้ วัยรุ่น</option>
-                      <option value="Elena">💼 เอเลน่า (Elena) - สุขุม มั่นใจ ผู้บริหาร</option>
+                    <optgroup label="🌊 ภาคใต้ (แหลงใต้)">
+                      <option value="Southern_Female">🐚 สาวนุ้ย (แหลงใต้) - หญิง คล่องแคล่ว หรอยแรง</option>
+                      <option value="Southern_Male">🥊 พี่บ่าวหลวง (แหลงใต้) - ชาย คมเข้ม จริงใจ</option>
                     </optgroup>
-                    <optgroup label="👨 เสียงผู้ชาย (3 คาแรคเตอร์)">
-                      <option value="Puck">👨 พัค (Puck) - สดใส ทะเล้น สนุก</option>
-                      <option value="Fenrir">🐺 เฟนริล (Fenrir) - ทุ้มลึก เข้มขรึม หนักแน่น</option>
-                      <option value="Charon">🎙️ คารอน (Charon) - สุขุม นิ่ง ชัดถ้อยชัดคำ</option>
+                    <optgroup label="🏔️ ภาคเหนือ (อู้คำเมือง)">
+                      <option value="Lanna_Female">🌸 น้องบัวตอง (คำเมือง) - หญิง หวานละมุน</option>
+                      <option value="Lanna_Male">🧔‍♂️ อ้ายหนานเมือง (คำเมือง) - ชาย สุภาพ อบอุ่น</option>
                     </optgroup>
-                    <optgroup label="🎙️ เสียงธรรมชาติ">
-                      <option value="Zephyr">🎧 เซเฟอร์ (Zephyr) - ทันสมัย สบายๆ</option>
+                    <optgroup label="🌾 ภาคอีสาน (เว้าอีสาน)">
+                      <option value="Isan_Female">👧 น้องคำแพง (เว้าอีสาน) - หญิง ม่วนซื่น สดใส</option>
+                      <option value="Isan_Male">🤠 อ้ายทิดทศ (เว้าอีสาน) - ชาย คึกคัก สนุกสนาน</option>
+                    </optgroup>
+                    <optgroup label="👩 ภาษากลาง - เสียงผู้หญิง">
+                      <option value="Kore">👩 โคเร่ (ขวัญข้าว) - อบอุ่น นุ่มนวล</option>
+                      <option value="Mira">🎀 มิรา (มายด์) - สดใส คาวาอี้ วัยรุ่น</option>
+                      <option value="Elena">💼 เอเลน่า (ลลิตา) - สุขุม มั่นใจ ผู้บริหาร</option>
+                    </optgroup>
+                    <optgroup label="👨 ภาษากลาง - เสียงผู้ชาย">
+                      <option value="Puck">👨 พัค (พีท) - สดใส ทะเล้น สนุก</option>
+                      <option value="Fenrir">🐺 เฟนริล (ภูผา) - ทุ้มลึก เข้มขรึม หนักแน่น</option>
+                      <option value="Charon">🎙️ คารอน (ชลันธร) - สุขุม นิ่ง ชัดถ้อยชัดคำ</option>
+                    </optgroup>
+                    <optgroup label="🎙️ ภาษากลาง - เสียงธรรมชาติ">
+                      <option value="Zephyr">🎧 เซเฟอร์ (ธรรมชาติ) - ทันสมัย สบายๆ</option>
                     </optgroup>
                   </select>
 

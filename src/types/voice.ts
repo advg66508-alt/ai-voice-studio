@@ -61,6 +61,8 @@ export interface GeneratedClip {
   id: string;
   title: string;
   text: string;
+  spokenText?: string;
+  dialectLabel?: string;
   voiceName: VoiceName;
   speed: SpeedPreset;
   speedRate: number;
