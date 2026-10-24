@@ -25,6 +25,9 @@ import {
   AMBIENT_PRESETS,
   mixVoiceAndAmbient,
   cleanScriptForSpeech,
+  applyVoiceCharacterShift,
+  stitchAudioBuffersWithGap,
+  audioBufferToWav,
 } from './utils/audioMixer';
 import {
   Sparkles,
@@ -271,16 +274,43 @@ export default function App() {
         return;
       }
 
-      if (data.audioBase64) {
-        const audioBlob = b64toBlob(data.audioBase64, 'audio/wav');
-        let finalAudioUrl = URL.createObjectURL(audioBlob);
+      if (data.audioBase64 || (Array.isArray(data.multiSpeakerSegments) && data.multiSpeakerSegments.length > 0)) {
+        const responseMime = data.mimeType || 'audio/wav';
+        let finalAudioUrl = '';
+        let finalWavBase64: string | null = data.audioBase64 || null;
 
-        // Decode audio buffer, apply pitch-preserving WSOLA speedRate, and mix ambient BGM + SFX into WAV
+        // Decode audio buffer, apply persona pitch/cadence if needed, apply WSOLA speedRate, and mix ambient BGM + SFX into WAV
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         const audioCtx: AudioContext = new AudioContextClass();
         try {
-          const arrayBuffer = await audioBlob.arrayBuffer();
-          const speechBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          let speechBuffer: AudioBuffer;
+
+          if (Array.isArray(data.multiSpeakerSegments) && data.multiSpeakerSegments.length > 0) {
+            const decodedSegments: AudioBuffer[] = [];
+            for (const seg of data.multiSpeakerSegments) {
+              const segBlob = b64toBlob(seg.audioBase64, seg.mimeType || 'audio/mpeg');
+              const segArr = await segBlob.arrayBuffer();
+              const rawSegBuf = await audioCtx.decodeAudioData(segArr);
+              const voicedSegBuf = applyVoiceCharacterShift(
+                rawSegBuf,
+                typeof seg.voicePitchFactor === 'number' ? seg.voicePitchFactor : 1.0,
+                typeof seg.voiceCadenceFactor === 'number' ? seg.voiceCadenceFactor : 1.0
+              );
+              decodedSegments.push(voicedSegBuf);
+            }
+            speechBuffer = stitchAudioBuffersWithGap(decodedSegments, 0.26);
+          } else {
+            const audioBlob = b64toBlob(data.audioBase64, responseMime);
+            finalAudioUrl = URL.createObjectURL(audioBlob);
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const decodedRaw = await audioCtx.decodeAudioData(arrayBuffer);
+            const pitchFactor =
+              typeof data.voicePitchFactor === 'number' ? data.voicePitchFactor : 1.0;
+            const cadenceFactor =
+              typeof data.voiceCadenceFactor === 'number' ? data.voiceCadenceFactor : 1.0;
+            speechBuffer = applyVoiceCharacterShift(decodedRaw, pitchFactor, cadenceFactor);
+          }
+
           rawSpeechBufferRef.current = speechBuffer;
           lastRawScriptWithSFXRef.current = isMultiSpeaker
             ? dialogues.map((d) => d.text).join(' ')
@@ -289,7 +319,7 @@ export default function App() {
           const effectiveAmbient = mixIntoDownload ? selectedAmbient : 'none';
           const effectiveVol = mixIntoDownload ? ambientVolume : 0;
 
-          const { audioUrl: renderedUrl } = await mixVoiceAndAmbient(
+          const { audioUrl: renderedUrl, wavBlob } = await mixVoiceAndAmbient(
             speechBuffer,
             effectiveAmbient,
             effectiveVol,
@@ -298,8 +328,22 @@ export default function App() {
             speedRate
           );
           finalAudioUrl = renderedUrl;
+
+          // If source was MP3 or multi-segment, also store clean WAV base64 for waveform/history consistency
+          if (responseMime !== 'audio/wav' || !finalWavBase64) {
+            const wavArr = new Uint8Array(await wavBlob.arrayBuffer());
+            let bin = '';
+            const chunk = 8192;
+            for (let i = 0; i < wavArr.length; i += chunk) {
+              bin += String.fromCharCode(...wavArr.subarray(i, i + chunk));
+            }
+            finalWavBase64 = btoa(bin);
+          }
         } catch (mixErr) {
-          console.warn('Audio mixing fallback to pure studio WAV:', mixErr);
+          console.warn('Audio mixing fallback to pure studio audio:', mixErr);
+          if (!finalAudioUrl && rawSpeechBufferRef.current) {
+            finalAudioUrl = URL.createObjectURL(audioBufferToWav(rawSpeechBufferRef.current));
+          }
         } finally {
           audioCtx.close().catch(() => {});
         }
@@ -309,7 +353,7 @@ export default function App() {
           data.dialectLabel || currentVoiceObj.dialectBadge || 'ภาษากลาง';
 
         setCurrentAudioUrl(finalAudioUrl);
-        setCurrentAudioBase64(data.audioBase64);
+        setCurrentAudioBase64(finalWavBase64);
         setCurrentSpokenText(spokenResultText);
         setCurrentDialectLabel(dialectResultLabel);
         setGenerationId((prev) => prev + 1);
@@ -336,7 +380,7 @@ export default function App() {
           speedRate: speedRate,
           style: stylePreset?.title || 'พากย์ทั่วไป',
           audioUrl: finalAudioUrl,
-          audioBase64: data.audioBase64,
+          audioBase64: finalWavBase64 || undefined,
           createdAt: Date.now(),
           modelUsed: data.modelUsed,
         };

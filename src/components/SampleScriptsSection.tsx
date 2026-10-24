@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { SAMPLE_SCRIPTS, VOICES } from '../data/presets';
 import { SampleScript } from '../types/voice';
+import { applyVoiceCharacterShift, audioBufferToWav } from '../utils/audioMixer';
 import {
   BookOpen,
   Search,
@@ -135,7 +136,27 @@ export const SampleScriptsSection: React.FC<SampleScriptsSectionProps> = ({
         });
         const data = await res.json();
         if (data.audioBase64) {
-          cachedUrl = `data:audio/wav;base64,${data.audioBase64}`;
+          const mimeType = data.mimeType || 'audio/wav';
+          const pitchFactor = typeof data.voicePitchFactor === 'number' ? data.voicePitchFactor : 1.0;
+          const cadenceFactor = typeof data.voiceCadenceFactor === 'number' ? data.voiceCadenceFactor : 1.0;
+
+          if (Math.abs(pitchFactor - 1.0) > 0.015 || Math.abs(cadenceFactor - 1.0) > 0.015) {
+            const binary = atob(data.audioBase64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            const audioCtx: AudioContext = new AudioCtx();
+            try {
+              const decoded = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+              const shifted = applyVoiceCharacterShift(decoded, pitchFactor, cadenceFactor);
+              const wavBlob = audioBufferToWav(shifted);
+              cachedUrl = URL.createObjectURL(wavBlob);
+            } finally {
+              audioCtx.close().catch(() => {});
+            }
+          } else {
+            cachedUrl = `data:${mimeType};base64,${data.audioBase64}`;
+          }
           sampleAudioCacheRef.current.set(sample.id, cachedUrl);
         }
       }

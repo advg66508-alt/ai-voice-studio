@@ -19,14 +19,33 @@ const isVercel = Boolean(process.env.VERCEL);
 
 app.use(express.json({ limit: '25mb' }));
 
-// Lazy Server-side Gemini client (prevents Serverless cold-start crash if GEMINI_API_KEY is not yet configured)
+// Resilient Server-side Gemini client (supports GEMINI_API_KEY / GOOGLE_API_KEY / API_KEY without crashing when unset)
 let cachedAiClient: GoogleGenAI | null = null;
-function getAiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในระบบ Environment Variables');
+let cachedApiKeyValue = '';
+
+function resolveGeminiApiKey(): string {
+  const candidates = [
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_API_KEY,
+    process.env.API_KEY,
+    process.env.VITE_GEMINI_API_KEY,
+  ];
+  for (const raw of candidates) {
+    const trimmed = (raw || '').trim();
+    if (trimmed && trimmed !== 'MY_GEMINI_API_KEY' && trimmed !== 'YOUR_API_KEY') {
+      return trimmed;
+    }
   }
-  if (!cachedAiClient) {
+  return '';
+}
+
+function getAiClient(): GoogleGenAI | null {
+  const apiKey = resolveGeminiApiKey();
+  if (!apiKey) {
+    return null;
+  }
+  if (!cachedAiClient || cachedApiKeyValue !== apiKey) {
+    cachedApiKeyValue = apiKey;
     cachedAiClient = new GoogleGenAI({
       apiKey,
       httpOptions: {
@@ -37,6 +56,110 @@ function getAiClient(): GoogleGenAI {
     });
   }
   return cachedAiClient;
+}
+
+/**
+ * Splits Thai text into safe natural phrase chunks (<= 170 chars) without breaking Thai combining marks or leading vowels
+ */
+function splitThaiTextIntoChunks(rawText: string, maxChars = 170): string[] {
+  const normalized = (rawText || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return ['สวัสดีค่ะ'];
+  if (normalized.length <= maxChars) return [normalized];
+
+  const rawTokens = normalized.split(/(?<=[.!?;,|])\s+|\s+/);
+  const chunks: string[] = [];
+  let current = '';
+
+  const isCombiningThai = (ch: string) => /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(ch);
+  const isLeadingThaiVowel = (ch: string) => /[\u0E40-\u0E44]/.test(ch);
+
+  const pushLongToken = (token: string) => {
+    let start = 0;
+    while (start < token.length) {
+      let end = Math.min(token.length, start + maxChars);
+      if (end < token.length) {
+        while (end > start + 20 && isCombiningThai(token[end])) {
+          end--;
+        }
+        while (end > start + 20 && isLeadingThaiVowel(token[end - 1])) {
+          end--;
+        }
+      }
+      const slice = token.slice(start, end).trim();
+      if (slice) chunks.push(slice);
+      start = end;
+    }
+  };
+
+  for (const token of rawTokens) {
+    if (!token) continue;
+    if (!current) {
+      if (token.length <= maxChars) {
+        current = token;
+      } else {
+        pushLongToken(token);
+      }
+    } else if (current.length + 1 + token.length <= maxChars) {
+      current = `${current} ${token}`;
+    } else {
+      chunks.push(current);
+      if (token.length <= maxChars) {
+        current = token;
+      } else {
+        current = '';
+        pushLongToken(token);
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length > 0 ? chunks : ['สวัสดีค่ะ'];
+}
+
+/**
+ * Keyless server-side neural Thai TTS fallback so voice generation NEVER fails when GEMINI_API_KEY is unset or quota-limited
+ */
+async function fetchFallbackThaiSpeechMp3(spokenText: string): Promise<Buffer> {
+  const chunks = splitThaiTextIntoChunks(spokenText, 170);
+  const buffers: Buffer[] = [];
+
+  for (const chunk of chunks) {
+    const encoded = encodeURIComponent(chunk);
+    const urls = [
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=${encoded}`,
+      `https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=th&client=gtx&q=${encoded}`,
+    ];
+
+    let chunkBuf: Buffer | null = null;
+    let lastErr: any = null;
+
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Referer: 'https://translate.google.com/',
+          },
+        });
+        if (res.ok) {
+          const arr = await res.arrayBuffer();
+          if (arr.byteLength > 128) {
+            chunkBuf = Buffer.from(arr);
+            break;
+          }
+        }
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (!chunkBuf) {
+      throw lastErr || new Error('ไม่สามารถสร้างเสียงสำรองได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง');
+    }
+    buffers.push(chunkBuf);
+  }
+
+  return Buffer.concat(buffers);
 }
 
 /**
@@ -98,6 +221,8 @@ interface VoicePersonaMeta {
   dialectLabel: string;
   personaPrompt: string;
   dialectRewriteRule?: string;
+  fallbackPitch: number;
+  fallbackCadence: number;
 }
 
 // Comprehensive Voice Persona & Regional Accent Mapping
@@ -108,6 +233,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'female',
     region: 'northern',
     dialectLabel: 'ภาษาเหนือ (อู้กำเมือง - สาวเหนือ)',
+    fallbackPitch: 1.07,
+    fallbackCadence: 0.9,
     personaPrompt:
       'PRIMARY ACCENT & PERSONA: Authentic native Northern Thai woman from Chiang Mai speaking genuine Kam Mueang / Lanna dialect (สาวเหนืออู้กำเมืองแท้ๆ). Speak with sweet, soft, melodic Northern Thai tonal contours, gentle lingering vowel endings, and warm Lanna charm ending with "เจ้า" / "เน้อเจ้า". Strictly avoid flat Central Bangkok Thai intonation.',
     dialectRewriteRule: `แปลงเป็น "ภาษาพูดอู้กำเมืองของสาวเหนือเชียงใหม่แท้ๆ" ใช้คำเมืองและคำสะกดออกเสียงแบบคนเหนือจริง เช่น:
@@ -124,6 +251,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'male',
     region: 'northern',
     dialectLabel: 'ภาษาเหนือ (อู้กำเมือง - บ่าวเหนือ)',
+    fallbackPitch: 0.8,
+    fallbackCadence: 0.92,
     personaPrompt:
       'PRIMARY ACCENT & PERSONA: Authentic native Northern Thai man from Chiang Mai speaking genuine Kam Mueang / Lanna dialect (บ่าวเหนืออู้กำเมืองแท้ๆ). Speak with warm, polite, melodic Northern Thai cadence and authentic Lanna intonation ending with "กั๊บ" / "เน้อครับ". Strictly avoid Central Bangkok Thai intonation.',
     dialectRewriteRule: `แปลงเป็น "ภาษาพูดอู้กำเมืองของป้อจายคนเหนือล้านนาแท้ๆ" เช่น:
@@ -139,6 +268,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'female',
     region: 'isan',
     dialectLabel: 'ภาษาอีสาน (เว้าอีสาน - สาวอีสาน)',
+    fallbackPitch: 1.06,
+    fallbackCadence: 1.06,
     personaPrompt:
       'PRIMARY ACCENT & PERSONA: Authentic native Northeastern Thai (Isan) woman from Khon Kaen speaking genuine Isan dialect (สาวอีสานเว้าอีสานแท้ๆ). Speak with lively, cheerful, musical Isan tonal inflection, warm friendly energy, and authentic Isan rhythm ending with "เด้อจ้า" / "จ้า". Strictly avoid Central Bangkok Thai intonation.',
     dialectRewriteRule: `แปลงเป็น "ภาษาพูดเว้าอีสานของสาวอีสานแท้ๆ" จังหวะม่วนซื่น เป็นกันเอง เช่น:
@@ -155,6 +286,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'male',
     region: 'isan',
     dialectLabel: 'ภาษาอีสาน (เว้าอีสาน - บ่าวอีสาน)',
+    fallbackPitch: 0.81,
+    fallbackCadence: 1.06,
     personaPrompt:
       'PRIMARY ACCENT & PERSONA: Authentic native Northeastern Thai (Isan) man speaking genuine Isan dialect (บ่าวอีสานเว้าอีสานแท้ๆ). Speak with upbeat, jovial, rhythmic Isan tonal lilt and warm local charisma ending with "เด้อครับ" / "เด้อพี่น้อง". Strictly avoid Central Bangkok Thai intonation.',
     dialectRewriteRule: `แปลงเป็น "ภาษาพูดเว้าอีสานของบ่าวอีสานแท้ๆ" สนุกสนาน จริงใจ เช่น:
@@ -170,6 +303,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'female',
     region: 'southern',
     dialectLabel: 'ภาษาใต้ (แหลงใต้ - สาวใต้)',
+    fallbackPitch: 1.05,
+    fallbackCadence: 1.14,
     personaPrompt:
       'PRIMARY ACCENT & PERSONA: Authentic native Southern Thai woman from Nakhon Si Thammarat / Songkhla speaking real Pak Tai dialect (สาวใต้แหลงใต้แท้ๆ). Speak with brisk, punchy, staccato, high-energy Southern Thai tonal jumps, clipped initial syllables, crisp consonants, and spirited Pak Tai cadence ending with "นิ", "พี่น้องเหอ", "ตะน้องเหอ", "หรอยจังหู้". NEVER speak in flat Central Bangkok Thai accent.',
     dialectRewriteRule: `สำคัญที่สุด! ต้องแปลงเป็น "ภาษาพูดแหลงใต้แท้ๆ ของสาวใต้ (เมืองคอน/สงขลา)" ที่มีจังหวะกระชับ ตัดคำหน้าตามธรรมชาติคนใต้ และใช้คำศัพท์ปักษ์ใต้แท้ๆ เพื่อให้เสียงพากย์ออกมาเป็นสาวใต้ 100% ห้ามเป็นภาษากลางเด็ดขาด เช่น:
@@ -192,6 +327,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'male',
     region: 'southern',
     dialectLabel: 'ภาษาใต้ (แหลงใต้ - บ่าวใต้)',
+    fallbackPitch: 0.77,
+    fallbackCadence: 1.12,
     personaPrompt:
       'PRIMARY ACCENT & PERSONA: Authentic native Southern Thai man speaking real Pak Tai dialect (พี่บ่าวหลวงแหลงใต้แท้ๆ). Speak with bold, punchy, crisp, rapid Southern Thai intonation, clipped syllables, and strong heartfelt Pak Tai rhythm ending with "นิ", "คับพี่น้อง", "ตะพี่น้อง". NEVER speak in Central Bangkok Thai accent.',
     dialectRewriteRule: `สำคัญที่สุด! ต้องแปลงเป็น "ภาษาพูดแหลงใต้แท้ๆ ของพี่บ่าวคนปักษ์ใต้" กระชับ หนักแน่น ตัดคำหน้าตามธรรมชาติคนใต้ เช่น:
@@ -210,6 +347,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'female',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงผู้หญิงอบอุ่น)',
+    fallbackPitch: 1.0,
+    fallbackCadence: 1.0,
     personaPrompt: 'Warm, gentle, melodic, comforting, clear standard Central Thai female voice',
   },
   Mira: {
@@ -217,6 +356,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'female',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงสาววัยรุ่นสดใส)',
+    fallbackPitch: 1.1,
+    fallbackCadence: 1.06,
     personaPrompt: 'Youthful, bright, cheerful, energetic, cute, bubbly young Central Thai female voice',
   },
   Elena: {
@@ -224,6 +365,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'female',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงผู้หญิงมืออาชีพ)',
+    fallbackPitch: 0.96,
+    fallbackCadence: 1.0,
     personaPrompt: 'Sophisticated, confident, articulate, authoritative, professional Central Thai businesswoman voice',
   },
   Puck: {
@@ -231,6 +374,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'male',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงผู้ชายสดใสมีพลัง)',
+    fallbackPitch: 0.82,
+    fallbackCadence: 1.05,
     personaPrompt: 'Energetic, lively, youthful, cheerful, engaging Central Thai male voice',
   },
   Fenrir: {
@@ -238,6 +383,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'male',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงผู้ชายทุ้มทรงพลัง)',
+    fallbackPitch: 0.73,
+    fallbackCadence: 0.94,
     personaPrompt: 'Deep, dramatic, powerful, resonant, intense Central Thai male voice',
   },
   Charon: {
@@ -245,6 +392,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'male',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงผู้ชายสุขุมน่าเชื่อถือ)',
+    fallbackPitch: 0.78,
+    fallbackCadence: 0.98,
     personaPrompt: 'Calm, authoritative, clear, articulate, professional Central Thai male news anchor voice',
   },
   Zephyr: {
@@ -252,6 +401,8 @@ const voiceMapping: Record<string, VoicePersonaMeta> = {
     gender: 'neutral',
     region: 'central',
     dialectLabel: 'ภาษากลาง (เสียงธรรมชาติฟังสบาย)',
+    fallbackPitch: 0.9,
+    fallbackCadence: 1.0,
     personaPrompt: 'Modern, balanced, natural, relaxed conversational Central Thai voice',
   },
 };
@@ -336,9 +487,11 @@ async function adaptScriptToVoiceDialect(
     return { spokenText: cached, wasAdapted: cached !== trimmed };
   }
 
-  // Deep Native Dialect Adaptation via Gemini 3.8 Flash (low thinking latency ~0.5s)
-  try {
-    const prompt = `คุณคือนักพากย์เจ้าของภาษาท้องถิ่นระดับครู สำหรับคาแรคเตอร์ "${meta.dialectLabel}"
+  // Deep Native Dialect Adaptation via Gemini 3.8 Flash when API key is configured; instant dictionary fallback otherwise
+  const ai = getAiClient();
+  if (ai) {
+    try {
+      const prompt = `คุณคือนักพากย์เจ้าของภาษาท้องถิ่นระดับครู สำหรับคาแรคเตอร์ "${meta.dialectLabel}"
 หน้าที่ของคุณคือแปลงบทพูดด้านล่างให้เป็น **บทพูดออกเสียงภาษาถิ่นแท้ 100%** ที่คนท้องถิ่นพูดจริงในชีวิตประจำวัน เพื่อส่งต่อให้ระบบสังเคราะห์เสียงอ่านออกเสียงเป็นสำเนียงภาคนั้นอย่างเป็นธรรมชาติที่สุด
 
 กฎเฉพาะของคาแรคเตอร์นี้:
@@ -353,36 +506,37 @@ ${meta.dialectRewriteRule}
 ข้อความต้นฉบับ:
 ${trimmed}`;
 
-    const llmRes = await Promise.race([
-      getAiClient().models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          temperature: 0.4,
-        },
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Dialect LLM timeout (4.5s)')), 4500)
-      ),
-    ]);
+      const llmRes = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            temperature: 0.4,
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Dialect LLM timeout (4.5s)')), 4500)
+        ),
+      ]);
 
-    let adapted = (llmRes.text || '')
-      .replace(/^["'“”]+|["'“”]+$/g, '')
-      .replace(/\([^)]*\)/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+      let adapted = (llmRes.text || '')
+        .replace(/^["'“”]+|["'“”]+$/g, '')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    if (adapted && adapted.length >= Math.min(4, Math.floor(trimmed.length * 0.4))) {
-      if (dialectAdaptationCache.size > 200) {
-        const firstKey = dialectAdaptationCache.keys().next().value;
-        if (firstKey) dialectAdaptationCache.delete(firstKey);
+      if (adapted && adapted.length >= Math.min(4, Math.floor(trimmed.length * 0.4))) {
+        if (dialectAdaptationCache.size > 200) {
+          const firstKey = dialectAdaptationCache.keys().next().value;
+          if (firstKey) dialectAdaptationCache.delete(firstKey);
+        }
+        dialectAdaptationCache.set(cacheKey, adapted);
+        return { spokenText: adapted, wasAdapted: adapted !== trimmed };
       }
-      dialectAdaptationCache.set(cacheKey, adapted);
-      return { spokenText: adapted, wasAdapted: adapted !== trimmed };
+    } catch (err: any) {
+      console.warn('LLM dialect adaptation fallback to dictionary:', err?.message);
     }
-  } catch (err: any) {
-    console.warn('LLM dialect adaptation fallback to dictionary:', err?.message);
   }
 
   return {
@@ -392,97 +546,121 @@ ${trimmed}`;
 }
 
 /**
- * Helper to synthesize single-speaker speech with resilient model fallback and guaranteed RIFF WAV output
+ * Helper to synthesize single-speaker speech using Gemini 3.8 TTS when available,
+ * with automatic fallback to keyless neural Thai TTS so generation NEVER fails!
  */
 async function synthesizeSingleSpeakerAudio(
   spokenText: string,
-  apiVoice: string,
+  voiceMeta: VoicePersonaMeta,
   combinedStyle: string
-): Promise<{ wavBuffer: Buffer; modelUsed: string }> {
-  const modelsToTry = [
-    { name: 'gemini-3.8-flash-tts', supportsStyleMetadata: true },
-    { name: 'gemini-3.8-flash-lite-tts', supportsStyleMetadata: true },
-    { name: 'gemini-3.1-flash-tts-preview', supportsStyleMetadata: false },
-  ];
+): Promise<{
+  audioBuffer: Buffer;
+  mimeType: 'audio/wav' | 'audio/mpeg';
+  modelUsed: string;
+  voicePitchFactor: number;
+  voiceCadenceFactor: number;
+}> {
+  const ai = getAiClient();
 
-  let lastError: any = null;
+  if (ai) {
+    const modelsToTry = [
+      { name: 'gemini-3.8-flash-tts', supportsStyleMetadata: true },
+      { name: 'gemini-3.8-flash-lite-tts', supportsStyleMetadata: true },
+    ];
 
-  for (const candidate of modelsToTry) {
-    try {
-      const partPayload: Record<string, any> = {
-        text: spokenText || 'สวัสดีค่ะ',
-      };
-      if (candidate.supportsStyleMetadata && combinedStyle) {
-        partPayload.speechMetadata = {
-          style: combinedStyle,
+    for (const candidate of modelsToTry) {
+      try {
+        const partPayload: Record<string, any> = {
+          text: spokenText || 'สวัสดีค่ะ',
         };
-      }
-
-      const response = await getAiClient().models.generateContent({
-        model: candidate.name,
-        contents: [
-          {
-            role: 'user',
-            parts: [partPayload],
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: apiVoice },
-            },
-          },
-        },
-      });
-
-      const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-      if (inlineData?.data) {
-        const rawBuf = Buffer.from(inlineData.data, 'base64');
-        const wavBuffer = ensureWavBuffer(rawBuf, inlineData.mimeType, 24000);
-        return { wavBuffer, modelUsed: candidate.name };
-      }
-    } catch (err: any) {
-      lastError = err;
-      const errMsg = String(err?.message || '');
-      console.warn(`TTS model ${candidate.name} (${apiVoice}) attempt note:`, errMsg.slice(0, 140));
-
-      // If Quota/429 error on a specific model, move to next candidate; if voiceName 'Aoede'/'Leda' is unsupported on this model, retry same model with 'Kore' so Voice Design style is preserved!
-      const isQuotaErr = errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota');
-      if (!isQuotaErr && (apiVoice === 'Aoede' || apiVoice === 'Leda')) {
-        try {
-          const retryPayload: Record<string, any> = {
-            text: spokenText || 'สวัสดีค่ะ',
+        if (candidate.supportsStyleMetadata && combinedStyle) {
+          partPayload.speechMetadata = {
+            style: combinedStyle,
           };
-          if (candidate.supportsStyleMetadata && combinedStyle) {
-            retryPayload.speechMetadata = { style: combinedStyle };
-          }
-          const fallbackRes = await getAiClient().models.generateContent({
-            model: candidate.name,
-            contents: [{ role: 'user', parts: [retryPayload] }],
-            config: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+        }
+
+        const response = await ai.models.generateContent({
+          model: candidate.name,
+          contents: [
+            {
+              role: 'user',
+              parts: [partPayload],
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voiceMeta.apiVoice },
               },
             },
-          });
-          const inlineData = fallbackRes.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-          if (inlineData?.data) {
-            const rawBuf = Buffer.from(inlineData.data, 'base64');
-            return {
-              wavBuffer: ensureWavBuffer(rawBuf, inlineData.mimeType, 24000),
-              modelUsed: candidate.name,
+          },
+        });
+
+        const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        if (inlineData?.data) {
+          const rawBuf = Buffer.from(inlineData.data, 'base64');
+          const wavBuffer = ensureWavBuffer(rawBuf, inlineData.mimeType, 24000);
+          return {
+            audioBuffer: wavBuffer,
+            mimeType: 'audio/wav',
+            modelUsed: candidate.name,
+            voicePitchFactor: 1.0,
+            voiceCadenceFactor: 1.0,
+          };
+        }
+      } catch (err: any) {
+        const errMsg = String(err?.message || '');
+        console.warn(`TTS model ${candidate.name} (${voiceMeta.apiVoice}) note:`, errMsg.slice(0, 140));
+
+        const isQuotaErr =
+          errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota');
+        if (!isQuotaErr && (voiceMeta.apiVoice === 'Aoede' || voiceMeta.apiVoice === 'Leda')) {
+          try {
+            const retryPayload: Record<string, any> = {
+              text: spokenText || 'สวัสดีค่ะ',
             };
+            if (candidate.supportsStyleMetadata && combinedStyle) {
+              retryPayload.speechMetadata = { style: combinedStyle };
+            }
+            const fallbackRes = await ai.models.generateContent({
+              model: candidate.name,
+              contents: [{ role: 'user', parts: [retryPayload] }],
+              config: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                  voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+                },
+              },
+            });
+            const inlineData = fallbackRes.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+            if (inlineData?.data) {
+              const rawBuf = Buffer.from(inlineData.data, 'base64');
+              return {
+                audioBuffer: ensureWavBuffer(rawBuf, inlineData.mimeType, 24000),
+                mimeType: 'audio/wav',
+                modelUsed: candidate.name,
+                voicePitchFactor: 1.0,
+                voiceCadenceFactor: 1.0,
+              };
+            }
+          } catch {
+            // Proceed to next candidate or neural fallback
           }
-        } catch (innerErr) {
-          lastError = innerErr;
         }
       }
     }
   }
 
-  throw lastError || new Error('ไม่ได้รับข้อมูลเสียงจากแบบจำลอง Gemini TTS');
+  // Seamless fallback to neural Thai speech + persona vocal character parameters
+  const mp3Buffer = await fetchFallbackThaiSpeechMp3(spokenText || 'สวัสดีค่ะ');
+  return {
+    audioBuffer: mp3Buffer,
+    mimeType: 'audio/mpeg',
+    modelUsed: 'thai-neural-studio',
+    voicePitchFactor: voiceMeta.fallbackPitch,
+    voiceCadenceFactor: voiceMeta.fallbackCadence,
+  };
 }
 
 // 1. Primary Text-to-Speech Endpoint
@@ -509,7 +687,6 @@ app.post('/api/tts/generate', async (req, res) => {
 
     // Multi-Speaker Dialogue Mode (2 Speakers)
     if (isMultiSpeaker && Array.isArray(speakers) && speakers.length >= 2) {
-      // Ensure exactly 2 distinct speaker identifiers for multiSpeakerVoiceConfig
       const normalizedLines = await Promise.all(
         speakers.map(async (spk: any, idx: number) => {
           const spkVoiceName = spk.voiceName || (idx % 2 === 0 ? 'Puck' : 'Kore');
@@ -531,12 +708,17 @@ app.post('/api/tts/generate', async (req, res) => {
         })
       );
 
-      const slotAMeta = normalizedLines.find((l) => l.speakerSlot === 'SpeakerA')?.meta || voiceMapping.Puck;
-      const slotBMeta = normalizedLines.find((l) => l.speakerSlot === 'SpeakerB')?.meta || voiceMapping.Kore;
+      const nonEmptyLines = normalizedLines.filter((l) => l.spokenText.length > 0);
+      const dialogueTranscript = nonEmptyLines
+        .map((l) => `${l.displaySpeaker}: ${l.spokenText}`)
+        .join(' | ');
 
-      const parts = normalizedLines
-        .filter((l) => l.spokenText.length > 0)
-        .map((l) => ({
+      const ai = getAiClient();
+      if (ai && nonEmptyLines.length > 0) {
+        const slotAMeta = nonEmptyLines.find((l) => l.speakerSlot === 'SpeakerA')?.meta || voiceMapping.Puck;
+        const slotBMeta = nonEmptyLines.find((l) => l.speakerSlot === 'SpeakerB')?.meta || voiceMapping.Kore;
+
+        const parts = nonEmptyLines.map((l) => ({
           text: `${l.speakerSlot}: ${l.spokenText}`,
           speechMetadata: {
             speaker: l.speakerSlot,
@@ -544,80 +726,104 @@ app.post('/api/tts/generate', async (req, res) => {
           },
         }));
 
-      const safeMultiVoice = (v: string) =>
-        ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr', 'Aoede', 'Leda'].includes(v) ? v : 'Kore';
+        const safeMultiVoice = (v: string) =>
+          ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr', 'Aoede', 'Leda'].includes(v) ? v : 'Kore';
 
-      const buildMultiConfig = (voiceA: string, voiceB: string) => ({
-        responseModalities: ['AUDIO' as const],
-        speechConfig: {
-          multiSpeakerVoiceConfig: {
-            speakerVoiceConfigs: [
-              {
-                speaker: 'SpeakerA',
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: voiceA },
+        const buildMultiConfig = (voiceA: string, voiceB: string) => ({
+          responseModalities: ['AUDIO' as const],
+          speechConfig: {
+            multiSpeakerVoiceConfig: {
+              speakerVoiceConfigs: [
+                {
+                  speaker: 'SpeakerA',
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: voiceA },
+                  },
                 },
-              },
-              {
-                speaker: 'SpeakerB',
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: voiceB },
+                {
+                  speaker: 'SpeakerB',
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: voiceB },
+                  },
                 },
-              },
-            ],
+              ],
+            },
           },
-        },
-      });
-
-      let response;
-      let modelUsed = 'gemini-3.8-flash-tts';
-      const primaryVoiceA = safeMultiVoice(slotAMeta.apiVoice);
-      const primaryVoiceB = safeMultiVoice(slotBMeta.apiVoice);
-      const coreVoiceA = primaryVoiceA === 'Aoede' || primaryVoiceA === 'Leda' ? 'Kore' : primaryVoiceA;
-      const coreVoiceB = primaryVoiceB === 'Aoede' || primaryVoiceB === 'Leda' ? 'Zephyr' : primaryVoiceB;
-
-      try {
-        response = await getAiClient().models.generateContent({
-          model: 'gemini-3.8-flash-tts',
-          contents: [{ role: 'user', parts }],
-          config: buildMultiConfig(primaryVoiceA, primaryVoiceB),
         });
-      } catch (flashErr: any) {
-        console.warn('Multi-speaker flash-tts fallback:', flashErr?.message);
+
+        const primaryVoiceA = safeMultiVoice(slotAMeta.apiVoice);
+        const primaryVoiceB = safeMultiVoice(slotBMeta.apiVoice);
+        const coreVoiceA = primaryVoiceA === 'Aoede' || primaryVoiceA === 'Leda' ? 'Kore' : primaryVoiceA;
+        const coreVoiceB = primaryVoiceB === 'Aoede' || primaryVoiceB === 'Leda' ? 'Zephyr' : primaryVoiceB;
+
+        let response = null;
+        let modelUsed = 'gemini-3.8-flash-tts';
+
         try {
-          response = await getAiClient().models.generateContent({
+          response = await ai.models.generateContent({
             model: 'gemini-3.8-flash-tts',
             contents: [{ role: 'user', parts }],
-            config: buildMultiConfig(coreVoiceA, coreVoiceB),
+            config: buildMultiConfig(primaryVoiceA, primaryVoiceB),
           });
         } catch {
-          modelUsed = 'gemini-3.8-flash-lite-tts';
-          response = await getAiClient().models.generateContent({
-            model: 'gemini-3.8-flash-lite-tts',
-            contents: [{ role: 'user', parts }],
-            config: buildMultiConfig(coreVoiceA, coreVoiceB),
+          try {
+            response = await ai.models.generateContent({
+              model: 'gemini-3.8-flash-tts',
+              contents: [{ role: 'user', parts }],
+              config: buildMultiConfig(coreVoiceA, coreVoiceB),
+            });
+          } catch {
+            try {
+              modelUsed = 'gemini-3.8-flash-lite-tts';
+              response = await ai.models.generateContent({
+                model: 'gemini-3.8-flash-lite-tts',
+                contents: [{ role: 'user', parts }],
+                config: buildMultiConfig(coreVoiceA, coreVoiceB),
+              });
+            } catch (multiFallbackErr: any) {
+              console.warn('Multi-speaker Gemini fallback to neural segments:', multiFallbackErr?.message);
+            }
+          }
+        }
+
+        const inlineData = response?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        if (inlineData?.data) {
+          const wavBuffer = ensureWavBuffer(Buffer.from(inlineData.data, 'base64'), inlineData.mimeType, 24000);
+          res.json({
+            success: true,
+            audioBase64: wavBuffer.toString('base64'),
+            mimeType: 'audio/wav',
+            spokenText: dialogueTranscript,
+            wasDialectAdapted: true,
+            dialectLabel: 'บทสนทนา 2 ตัวละคร',
+            modelUsed,
           });
+          return;
         }
       }
 
-      const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-      if (!inlineData?.data) {
-        throw new Error('ไม่ได้รับข้อมูลเสียงจากแบบจำลอง Gemini');
-      }
-
-      const wavBuffer = ensureWavBuffer(Buffer.from(inlineData.data, 'base64'), inlineData.mimeType, 24000);
-      const dialogueTranscript = normalizedLines
-        .map((l) => `${l.displaySpeaker}: ${l.spokenText}`)
-        .join(' | ');
+      // Multi-Speaker Neural Fallback (preserves distinct Male/Female voice pitch & regional cadence per speaker!)
+      const multiSpeakerSegments = await Promise.all(
+        nonEmptyLines.map(async (line) => {
+          const mp3Buf = await fetchFallbackThaiSpeechMp3(line.spokenText);
+          return {
+            speaker: line.displaySpeaker,
+            audioBase64: mp3Buf.toString('base64'),
+            mimeType: 'audio/mpeg',
+            voicePitchFactor: line.meta.fallbackPitch,
+            voiceCadenceFactor: line.meta.fallbackCadence,
+          };
+        })
+      );
 
       res.json({
         success: true,
-        audioBase64: wavBuffer.toString('base64'),
-        mimeType: 'audio/wav',
+        multiSpeakerSegments,
+        mimeType: 'audio/mpeg',
         spokenText: dialogueTranscript,
         wasDialectAdapted: true,
         dialectLabel: 'บทสนทนา 2 ตัวละคร',
-        modelUsed,
+        modelUsed: 'thai-neural-studio-dialogue',
       });
       return;
     }
@@ -635,16 +841,24 @@ app.post('/api/tts/generate', async (req, res) => {
       autoTranslate !== false
     );
 
-    const { wavBuffer, modelUsed } = await synthesizeSingleSpeakerAudio(
+    const {
+      audioBuffer,
+      mimeType,
+      modelUsed,
+      voicePitchFactor,
+      voiceCadenceFactor,
+    } = await synthesizeSingleSpeakerAudio(
       spokenText || 'สวัสดีค่ะ',
-      voiceMeta.apiVoice,
+      voiceMeta,
       combinedStyle
     );
 
     res.json({
       success: true,
-      audioBase64: wavBuffer.toString('base64'),
-      mimeType: 'audio/wav',
+      audioBase64: audioBuffer.toString('base64'),
+      mimeType,
+      voicePitchFactor,
+      voiceCadenceFactor,
       spokenText,
       wasDialectAdapted: wasAdapted,
       dialectLabel: voiceMeta.dialectLabel,
@@ -653,31 +867,6 @@ app.post('/api/tts/generate', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Error generating TTS:', error);
-    const errStr = String(error?.message || error?.details || error || '');
-    const isQuotaExceeded =
-      errStr.includes('429') ||
-      errStr.includes('quota') ||
-      errStr.includes('Quota') ||
-      errStr.includes('RESOURCE_EXHAUSTED') ||
-      error?.status === 'RESOURCE_EXHAUSTED';
-
-    if (isQuotaExceeded) {
-      const isPerMinute = errStr.includes('PerMinute') || errStr.includes('limit: 3');
-      const waitMatch = errStr.match(/retry in ([0-9.]+)s/i) || errStr.match(/retryDelay":"([0-9]+)s/i);
-      const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1])) : 20;
-
-      res.status(429).json({
-        success: false,
-        quotaExceeded: true,
-        isPerMinute,
-        waitSec,
-        error: isPerMinute
-          ? `ระบบจำกัดความถี่ชั่วคราว กรุณารอสักครู่ (~${waitSec} วินาที) แล้วกดสร้างเสียงพากย์ใหม่อีกครั้งครับ`
-          : 'โควตา Gemini TTS เต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่อีกครั้งครับ',
-      });
-      return;
-    }
-
     res.status(500).json({
       error: error?.message || 'เกิดข้อผิดพลาดในการสร้างเสียงพากย์',
       details: error?.toString(),
@@ -855,13 +1044,20 @@ const SAMPLE_DEFINITIONS: Record<string, { text: string; voiceKey: string; style
   },
 };
 
-// Deduplicate concurrent sample generation requests
-const pendingSamples = new Map<string, Promise<Buffer>>();
+interface CachedSampleItem {
+  buffer: Buffer;
+  mimeType: 'audio/wav' | 'audio/mpeg';
+  pitchFactor: number;
+  cadenceFactor: number;
+}
 
-// 1.5 Real Studio Preview Endpoint (Bundled static + /tmp serverless cache with valid RIFF WAV generation)
+// Deduplicate concurrent sample generation requests
+const pendingSamples = new Map<string, Promise<CachedSampleItem>>();
+
+// 1.5 Real Studio Preview Endpoint (Bundled static + /tmp serverless cache + neural Thai fallback)
 app.get('/api/tts/sample/:id', async (req, res) => {
   const sampleId = req.params.id.replace(/[^a-zA-Z0-9_-]/g, '');
-  const candidatePaths = isVercel
+  const candidateWavPaths = isVercel
     ? [
         path.join(WRITABLE_PREVIEWS_DIR, `${sampleId}.wav`),
         path.join(BUNDLED_PREVIEWS_DIR, `${sampleId}.wav`),
@@ -869,12 +1065,14 @@ app.get('/api/tts/sample/:id', async (req, res) => {
     : [path.join(BUNDLED_PREVIEWS_DIR, `${sampleId}.wav`)];
 
   // 1. Serve from disk/tmp if valid RIFF WAV exists
-  for (const filePath of candidatePaths) {
+  for (const filePath of candidateWavPaths) {
     if (fs.existsSync(filePath)) {
       try {
         const existing = fs.readFileSync(filePath);
         if (existing.length > 44 && existing.subarray(0, 4).toString('ascii') === 'RIFF') {
           res.setHeader('Content-Type', 'audio/wav');
+          res.setHeader('X-Voice-Pitch', '1');
+          res.setHeader('X-Voice-Cadence', '1');
           res.setHeader('Cache-Control', 'public, max-age=86400');
           res.send(existing);
           return;
@@ -891,32 +1089,61 @@ app.get('/api/tts/sample/:id', async (req, res) => {
     return;
   }
 
+  const voiceMeta = voiceMapping[sampleInfo.voiceKey] || voiceMapping.Kore;
+
+  // Check cached fallback MP3 if no Gemini API key is configured
+  const cachedMp3Path = path.join(WRITABLE_PREVIEWS_DIR, `${sampleId}.mp3`);
+  if (!getAiClient() && fs.existsSync(cachedMp3Path)) {
+    try {
+      const existingMp3 = fs.readFileSync(cachedMp3Path);
+      if (existingMp3.length > 128) {
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('X-Voice-Pitch', String(voiceMeta.fallbackPitch));
+        res.setHeader('X-Voice-Cadence', String(voiceMeta.fallbackCadence));
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(existingMp3);
+        return;
+      }
+    } catch {
+      // Regenerate below
+    }
+  }
+
   try {
     let genPromise = pendingSamples.get(sampleId);
     if (!genPromise) {
-      const voiceMeta = voiceMapping[sampleInfo.voiceKey] || voiceMapping.Kore;
-      const writableTarget = path.join(WRITABLE_PREVIEWS_DIR, `${sampleId}.wav`);
       genPromise = synthesizeSingleSpeakerAudio(
         sampleInfo.text,
-        voiceMeta.apiVoice,
+        voiceMeta,
         sampleInfo.stylePrompt
-      ).then(({ wavBuffer }) => {
+      ).then((result) => {
         try {
           fs.mkdirSync(WRITABLE_PREVIEWS_DIR, { recursive: true });
-          fs.writeFileSync(writableTarget, wavBuffer);
+          const ext = result.mimeType === 'audio/wav' ? 'wav' : 'mp3';
+          fs.writeFileSync(path.join(WRITABLE_PREVIEWS_DIR, `${sampleId}.${ext}`), result.audioBuffer);
         } catch (writeErr) {
           console.warn('Sample cache write skipped:', writeErr);
         }
-        return wavBuffer;
+        return {
+          buffer: result.audioBuffer,
+          mimeType: result.mimeType,
+          pitchFactor: result.voicePitchFactor,
+          cadenceFactor: result.voiceCadenceFactor,
+        };
       });
       pendingSamples.set(sampleId, genPromise);
     }
 
-    const wavBuffer = await genPromise;
+    const sampleResult = await genPromise;
     pendingSamples.delete(sampleId);
-    res.setHeader('Content-Type', 'audio/wav');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(wavBuffer);
+    res.setHeader('Content-Type', sampleResult.mimeType);
+    res.setHeader('X-Voice-Pitch', String(sampleResult.pitchFactor));
+    res.setHeader('X-Voice-Cadence', String(sampleResult.cadenceFactor));
+    res.setHeader(
+      'Cache-Control',
+      sampleResult.mimeType === 'audio/wav' ? 'public, max-age=86400' : 'public, max-age=3600'
+    );
+    res.send(sampleResult.buffer);
   } catch (err: any) {
     pendingSamples.delete(sampleId);
     console.warn('On-demand sample generation error:', err?.message);
@@ -973,6 +1200,46 @@ app.post('/api/dialect/translate', async (req, res) => {
   }
 });
 
+/**
+ * Built-in smart Thai voiceover script builder used if GEMINI_API_KEY is not configured
+ */
+function buildFallbackScriptTemplate(
+  topic: string,
+  type: string,
+  tone: string,
+  targetDuration: string
+) {
+  const cleanTopic = topic.trim() || 'สินค้าและบริการคุณภาพพิเศษ';
+  const durationLabel =
+    targetDuration === '15s' ? '15 วินาที' : targetDuration === '60s' ? '60 วินาที' : '30 วินาที';
+
+  let cleanText = '';
+  let script = '';
+  let tips = `เน้นจังหวะน้ำเสียง${tone} เว้นวรรคหายใจสั้นๆ หลังประโยคเปิด เพื่อดึงความสนใจผู้ฟังตั้งแต่ 3 วินาทีแรก`;
+
+  if (type === 'movie') {
+    cleanText = `ในห้วงเวลาที่ทุกสายตาจับจ้อง... ความลับของ ${cleanTopic} กำลังจะถูกเปิดเผย เตรียมพบกับประสบการณ์สุดระทึกที่จะเปลี่ยนทุกความเชื่อของคุณไปตลอดกาล เร็วๆ นี้`;
+    script = `(น้ำเสียงทุ้มลึก น่าค้นหา) ในห้วงเวลาที่ทุกสายตาจับจ้อง... (เว้นจังหวะ 1 วินาที) ความลับของ ${cleanTopic} กำลังจะถูกเปิดเผย! (เน้นเสียงทรงพลัง) เตรียมพบกับประสบการณ์สุดระทึกที่จะเปลี่ยนทุกความเชื่อของคุณไปตลอดกาล เร็วๆ นี้`;
+  } else if (type === 'news' || type === 'documentary') {
+    cleanText = `สวัสดีค่ะ วันนี้เราจะพาท่านผู้ฟังมาเจาะลึกเรื่องราวของ ${cleanTopic} ซึ่งกำลังได้รับความสนใจอย่างกว้างขวาง ด้วยจุดเด่นและคุณค่าที่ตอบโจทย์ยุคสมัยใหม่ได้อย่างลงตัวค่ะ`;
+    script = `(น้ำเสียงสุขุม ชัดถ้อยชัดคำ) สวัสดีค่ะ วันนี้เราจะพาท่านผู้ฟังมาเจาะลึกเรื่องราวของ ${cleanTopic} (เว้นจังหวะสั้นๆ) ซึ่งกำลังได้รับความสนใจอย่างกว้างขวาง ด้วยจุดเด่นและคุณค่าที่ตอบโจทย์ยุคสมัยใหม่ได้อย่างลงตัวค่ะ`;
+  } else if (type === 'female-live' || type === 'beauty-review' || type === 'review') {
+    cleanText = `ทุกคนขา วันนี้ขอป้ายยา ${cleanTopic} บอกเลยว่าของจริงดีมาก ใช้แล้วประทับใจสุดๆ คุ้มค่าเกินราคา ใครเล็งอยู่รีบกดสั่งเลยนะคะ ห้ามพลาดเด็ดขาดค่ะ!`;
+    script = `(น้ำเสียงสดใส ตื่นเต้น เป็นกันเอง) ทุกคนขา! วันนี้ขอป้ายยา ${cleanTopic} (เน้นเสียง) บอกเลยว่าของจริงดีมาก ใช้แล้วประทับใจสุดๆ คุ้มค่าเกินราคา ใครเล็งอยู่รีบกดสั่งเลยนะคะ ห้ามพลาดเด็ดขาดค่ะ!`;
+  } else {
+    cleanText = `พบกับ ${cleanTopic} คัดสรรคุณภาพระดับพรีเมียม ตอบโจทย์ทุกความต้องการของคุณได้อย่างคุ้มค่า โปรโมชั่นพิเศษเฉพาะวันนี้ สนใจสั่งซื้อหรือสอบถามรายละเอียดได้ทันทีค่ะ`;
+    script = `(น้ำเสียง${tone}) พบกับ ${cleanTopic}! (เว้นจังหวะสั้นๆ) คัดสรรคุณภาพระดับพรีเมียม ตอบโจทย์ทุกความต้องการของคุณได้อย่างคุ้มค่า (เน้นเสียงชวนตัดสินใจ) โปรโมชั่นพิเศษเฉพาะวันนี้ สนใจสั่งซื้อหรือสอบถามรายละเอียดได้ทันทีค่ะ`;
+  }
+
+  return {
+    title: `บทพากย์: ${cleanTopic.slice(0, 40)}`,
+    script,
+    cleanText,
+    estimatedDuration: durationLabel,
+    tips,
+  };
+}
+
 // 3. AI Voiceover Script Generator
 app.post('/api/script/ai-generate', async (req, res) => {
   try {
@@ -983,7 +1250,10 @@ app.post('/api/script/ai-generate', async (req, res) => {
       targetDuration = '30s',
     } = req.body;
 
-    const prompt = `คุณคือนักเขียนบทและนักพากย์มืออาชีพระดับท็อป
+    const ai = getAiClient();
+    if (ai) {
+      try {
+        const prompt = `คุณคือนักเขียนบทและนักพากย์มืออาชีพระดับท็อป
 กรุณาเขียนบทพากย์เสียง (Voiceover Script) ภาษาไทย สำหรับ:
 - หัวข้อ: ${topic}
 - ประเภทงาน: ${type}
@@ -1005,23 +1275,31 @@ app.post('/api/script/ai-generate', async (req, res) => {
   "tips": "คำแนะนำเพิ่มเติมสำหรับการพากย์ให้อารมณ์สมจริง"
 }`;
 
-    const response = await getAiClient().models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
 
-    const rawText = response.text || '{}';
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      data = { script: rawText, cleanText: rawText };
+        const rawText = response.text || '{}';
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = { script: rawText, cleanText: rawText };
+        }
+
+        res.json({ success: true, ...data });
+        return;
+      } catch (llmErr: any) {
+        console.warn('Script AI fallback to built-in template:', llmErr?.message);
+      }
     }
 
-    res.json({ success: true, ...data });
+    const fallbackScript = buildFallbackScriptTemplate(topic, type, tone, targetDuration);
+    res.json({ success: true, ...fallbackScript });
   } catch (error: any) {
     console.error('Error generating script:', error);
     res.status(500).json({

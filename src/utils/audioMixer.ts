@@ -578,7 +578,7 @@ export function timeStretchSpeechWSOLA(
   inputBuffer: AudioBuffer,
   speedRate: number
 ): AudioBuffer {
-  const clampedRate = Math.max(0.5, Math.min(2.0, speedRate || 1.0));
+  const clampedRate = Math.max(0.42, Math.min(2.6, speedRate || 1.0));
   if (Math.abs(clampedRate - 1.0) <= 0.02) {
     return inputBuffer;
   }
@@ -685,6 +685,113 @@ export function timeStretchSpeechWSOLA(
     stretchedBuffer.getChannelData(c).set(outChannels[c]);
   }
   return stretchedBuffer;
+}
+
+/**
+ * Applies vocal character pitch shifting (e.g., deep Male vs sweet/bright Female) and regional cadence
+ * using linear-interpolated resampling + WSOLA tempo compensation so duration and pitch are both exact.
+ */
+export function applyVoiceCharacterShift(
+  inputBuffer: AudioBuffer,
+  pitchFactor = 1.0,
+  cadenceFactor = 1.0
+): AudioBuffer {
+  const safePitch = Math.max(0.65, Math.min(1.35, pitchFactor || 1.0));
+  const safeCadence = Math.max(0.75, Math.min(1.4, cadenceFactor || 1.0));
+
+  if (Math.abs(safePitch - 1.0) <= 0.015 && Math.abs(safeCadence - 1.0) <= 0.015) {
+    return inputBuffer;
+  }
+
+  let workingBuffer = inputBuffer;
+  const sampleRate = inputBuffer.sampleRate;
+  const numChannels = inputBuffer.numberOfChannels;
+
+  if (Math.abs(safePitch - 1.0) > 0.015) {
+    const inLen = inputBuffer.length;
+    const resampledLen = Math.max(256, Math.round(inLen / safePitch));
+    const offlineCtx = new OfflineAudioContext(numChannels, resampledLen, sampleRate);
+    const resampled = offlineCtx.createBuffer(numChannels, resampledLen, sampleRate);
+
+    for (let c = 0; c < numChannels; c++) {
+      const src = inputBuffer.getChannelData(c);
+      const dst = resampled.getChannelData(c);
+      const maxIdx = inLen - 1;
+      for (let i = 0; i < resampledLen; i++) {
+        const srcPos = i * safePitch;
+        const idx0 = Math.min(maxIdx, Math.floor(srcPos));
+        const idx1 = Math.min(maxIdx, idx0 + 1);
+        const frac = srcPos - idx0;
+        dst[i] = src[idx0] * (1 - frac) + src[idx1] * frac;
+      }
+    }
+    workingBuffer = resampled;
+  }
+
+  // Compensate duration from resampling (1 / safePitch) and apply regional cadenceFactor
+  const compensationRate = safeCadence / safePitch;
+  return timeStretchSpeechWSOLA(workingBuffer, compensationRate);
+}
+
+/**
+ * Stitches multiple speaker AudioBuffers sequentially with a natural conversational pause
+ */
+export function stitchAudioBuffersWithGap(
+  buffers: AudioBuffer[],
+  gapSeconds = 0.26
+): AudioBuffer {
+  if (buffers.length === 0) {
+    const emptyCtx = new OfflineAudioContext(1, 2400, 24000);
+    return emptyCtx.createBuffer(1, 2400, 24000);
+  }
+  if (buffers.length === 1) {
+    return buffers[0];
+  }
+
+  const sampleRate = buffers[0].sampleRate;
+  const numChannels = Math.max(...buffers.map((b) => b.numberOfChannels));
+  const gapSamples = Math.max(0, Math.round(sampleRate * gapSeconds));
+
+  // Normalize all buffers to same sampleRate if needed
+  const normalizedBuffers = buffers.map((buf) => {
+    if (buf.sampleRate === sampleRate) return buf;
+    const ratio = buf.sampleRate / sampleRate;
+    const newLen = Math.max(1, Math.round(buf.length / ratio));
+    const ctx = new OfflineAudioContext(numChannels, newLen, sampleRate);
+    const out = ctx.createBuffer(numChannels, newLen, sampleRate);
+    for (let c = 0; c < numChannels; c++) {
+      const src = buf.getChannelData(Math.min(c, buf.numberOfChannels - 1));
+      const dst = out.getChannelData(c);
+      const maxIdx = src.length - 1;
+      for (let i = 0; i < newLen; i++) {
+        const pos = i * ratio;
+        const i0 = Math.min(maxIdx, Math.floor(pos));
+        const i1 = Math.min(maxIdx, i0 + 1);
+        const f = pos - i0;
+        dst[i] = src[i0] * (1 - f) + src[i1] * f;
+      }
+    }
+    return out;
+  });
+
+  const totalLength =
+    normalizedBuffers.reduce((acc, b) => acc + b.length, 0) +
+    gapSamples * (normalizedBuffers.length - 1);
+
+  const offlineCtx = new OfflineAudioContext(numChannels, Math.max(1, totalLength), sampleRate);
+  const stitched = offlineCtx.createBuffer(numChannels, Math.max(1, totalLength), sampleRate);
+
+  let writeOffset = 0;
+  for (let idx = 0; idx < normalizedBuffers.length; idx++) {
+    const buf = normalizedBuffers[idx];
+    for (let c = 0; c < numChannels; c++) {
+      const src = buf.getChannelData(Math.min(c, buf.numberOfChannels - 1));
+      stitched.getChannelData(c).set(src, writeOffset);
+    }
+    writeOffset += buf.length + (idx < normalizedBuffers.length - 1 ? gapSamples : 0);
+  }
+
+  return stitched;
 }
 
 /**
