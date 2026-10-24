@@ -2,19 +2,52 @@
 
 @layer base {
   body {
-    font-family: 'Prompt', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-family: 'IBM Plex Sans Thai', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 }
 
-@keyframes soundWave {
-  0%, 100% {
-    height: 6px;
-  }
-  50% {
-    height: 32px;
-  }
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
-.animate-wave-bar {
-  animation: soundWave 1.2s ease-in-out infinite;
+/* Clean custom range slider styling for studio Pitch & Speed controls */
+input[type="range"].studio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: #1e293b;
+  outline: none;
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #0b0f17;
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+  background: #fbbf24;
+}
+
+input[type="range"].studio-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #0b0f17;
+  cursor: pointer;
 }

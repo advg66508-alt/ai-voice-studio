@@ -15,7 +15,21 @@ export type VoiceName =
 
 export type RegionType = 'central' | 'northern' | 'isan' | 'southern';
 
+export type GenderType = 'female' | 'male';
+
 export type SpeedPreset = 'slow' | 'normal' | 'fast';
+
+export interface StudioCharacter {
+  id: VoiceName;
+  name: string;
+  roleLabel: string;
+  region: RegionType;
+  gender: GenderType;
+  toneSummary: string;
+  fallbackPitch: number;
+  fallbackCadence: number;
+  sampleText: string;
+}
 
 export interface VoiceOption {
   id: VoiceName;
@@ -63,15 +77,19 @@ export interface GeneratedClip {
   text: string;
   spokenText?: string;
   dialectLabel?: string;
+  region?: RegionType;
+  gender?: GenderType;
   voiceName: VoiceName;
   speed: SpeedPreset;
   speedRate: number;
+  pitchRate?: number;
   style: string;
   audioUrl: string;
   audioBase64?: string;
   createdAt: number;
   duration?: number;
   modelUsed?: string;
+  isFallback?: boolean;
 }
 
 export interface DialogueLine {
