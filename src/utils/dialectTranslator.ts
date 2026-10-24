@@ -10,7 +10,7 @@
  * and polite particle adaptation based on speaker gender (ชาย/หญิง).
  */
 
-import { RegionType } from '../types/voice';
+import type { RegionType } from '../types/voice.js';
 
 export interface RegionalMeta {
   id: RegionType;

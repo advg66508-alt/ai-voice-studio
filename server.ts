@@ -1,12 +1,12 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { translateCentralToDialect } from './src/utils/dialectTranslator';
-import { RegionType } from './src/types/voice';
+import { translateCentralToDialect } from './src/utils/dialectTranslator.js';
+import type { RegionType } from './src/types/voice.js';
 
 dotenv.config();
 
@@ -15,18 +15,29 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
+const isVercel = Boolean(process.env.VERCEL);
 
 app.use(express.json({ limit: '25mb' }));
 
-// Server-side Gemini client
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+// Lazy Server-side Gemini client (prevents Serverless cold-start crash if GEMINI_API_KEY is not yet configured)
+let cachedAiClient: GoogleGenAI | null = null;
+function getAiClient(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในระบบ Environment Variables');
+  }
+  if (!cachedAiClient) {
+    cachedAiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return cachedAiClient;
+}
 
 /**
  * Guarantees that any audio buffer (whether WAV from Gemini 3.8 TTS or raw L16 PCM from fallback models)
@@ -343,7 +354,7 @@ ${meta.dialectRewriteRule}
 ${trimmed}`;
 
     const llmRes = await Promise.race([
-      ai.models.generateContent({
+      getAiClient().models.generateContent({
         model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
@@ -407,7 +418,7 @@ async function synthesizeSingleSpeakerAudio(
         };
       }
 
-      const response = await ai.models.generateContent({
+      const response = await getAiClient().models.generateContent({
         model: candidate.name,
         contents: [
           {
@@ -446,7 +457,7 @@ async function synthesizeSingleSpeakerAudio(
           if (candidate.supportsStyleMetadata && combinedStyle) {
             retryPayload.speechMetadata = { style: combinedStyle };
           }
-          const fallbackRes = await ai.models.generateContent({
+          const fallbackRes = await getAiClient().models.generateContent({
             model: candidate.name,
             contents: [{ role: 'user', parts: [retryPayload] }],
             config: {
@@ -566,7 +577,7 @@ app.post('/api/tts/generate', async (req, res) => {
       const coreVoiceB = primaryVoiceB === 'Aoede' || primaryVoiceB === 'Leda' ? 'Zephyr' : primaryVoiceB;
 
       try {
-        response = await ai.models.generateContent({
+        response = await getAiClient().models.generateContent({
           model: 'gemini-3.8-flash-tts',
           contents: [{ role: 'user', parts }],
           config: buildMultiConfig(primaryVoiceA, primaryVoiceB),
@@ -574,14 +585,14 @@ app.post('/api/tts/generate', async (req, res) => {
       } catch (flashErr: any) {
         console.warn('Multi-speaker flash-tts fallback:', flashErr?.message);
         try {
-          response = await ai.models.generateContent({
+          response = await getAiClient().models.generateContent({
             model: 'gemini-3.8-flash-tts',
             contents: [{ role: 'user', parts }],
             config: buildMultiConfig(coreVoiceA, coreVoiceB),
           });
         } catch {
           modelUsed = 'gemini-3.8-flash-lite-tts';
-          response = await ai.models.generateContent({
+          response = await getAiClient().models.generateContent({
             model: 'gemini-3.8-flash-lite-tts',
             contents: [{ role: 'user', parts }],
             config: buildMultiConfig(coreVoiceA, coreVoiceB),
@@ -674,16 +685,21 @@ app.post('/api/tts/generate', async (req, res) => {
   }
 });
 
-// Directory for high-quality cached preview samples
-const PREVIEWS_DIR = path.resolve(__dirname, 'public', 'audio', 'previews');
-if (!fs.existsSync(PREVIEWS_DIR)) {
-  fs.mkdirSync(PREVIEWS_DIR, { recursive: true });
-} else {
-  // Clean up or repair any legacy raw PCM files that lacked RIFF headers
-  try {
-    for (const file of fs.readdirSync(PREVIEWS_DIR)) {
+// Directories for high-quality cached preview samples
+// On Vercel Serverless, /var/task is read-only, so runtime writes go to os.tmpdir() (/tmp)
+const BUNDLED_PREVIEWS_DIR = path.resolve(__dirname, 'public', 'audio', 'previews');
+const WRITABLE_PREVIEWS_DIR = isVercel
+  ? path.join(os.tmpdir(), 'audio-previews')
+  : BUNDLED_PREVIEWS_DIR;
+
+try {
+  if (!fs.existsSync(WRITABLE_PREVIEWS_DIR)) {
+    fs.mkdirSync(WRITABLE_PREVIEWS_DIR, { recursive: true });
+  } else if (!isVercel) {
+    // Clean up any legacy raw PCM files that lacked RIFF headers in local dev
+    for (const file of fs.readdirSync(WRITABLE_PREVIEWS_DIR)) {
       if (file.endsWith('.wav')) {
-        const fullPath = path.join(PREVIEWS_DIR, file);
+        const fullPath = path.join(WRITABLE_PREVIEWS_DIR, file);
         const buf = fs.readFileSync(fullPath);
         if (buf.length < 44 || buf.subarray(0, 4).toString('ascii') !== 'RIFF') {
           fs.unlinkSync(fullPath);
@@ -691,9 +707,9 @@ if (!fs.existsSync(PREVIEWS_DIR)) {
         }
       }
     }
-  } catch (cleanupErr) {
-    console.warn('Preview cleanup note:', cleanupErr);
   }
+} catch (cleanupErr) {
+  console.warn('Preview cache directory setup note:', cleanupErr);
 }
 
 const SAMPLE_DEFINITIONS: Record<string, { text: string; voiceKey: string; stylePrompt: string }> = {
@@ -842,23 +858,30 @@ const SAMPLE_DEFINITIONS: Record<string, { text: string; voiceKey: string; style
 // Deduplicate concurrent sample generation requests
 const pendingSamples = new Map<string, Promise<Buffer>>();
 
-// 1.5 Real Studio Preview Endpoint (Instant 0ms disk cache with valid RIFF WAV generation)
+// 1.5 Real Studio Preview Endpoint (Bundled static + /tmp serverless cache with valid RIFF WAV generation)
 app.get('/api/tts/sample/:id', async (req, res) => {
   const sampleId = req.params.id.replace(/[^a-zA-Z0-9_-]/g, '');
-  const filePath = path.join(PREVIEWS_DIR, `${sampleId}.wav`);
+  const candidatePaths = isVercel
+    ? [
+        path.join(WRITABLE_PREVIEWS_DIR, `${sampleId}.wav`),
+        path.join(BUNDLED_PREVIEWS_DIR, `${sampleId}.wav`),
+      ]
+    : [path.join(BUNDLED_PREVIEWS_DIR, `${sampleId}.wav`)];
 
-  // 1. Serve from disk if valid RIFF WAV exists
-  if (fs.existsSync(filePath)) {
-    try {
-      const existing = fs.readFileSync(filePath);
-      if (existing.length > 44 && existing.subarray(0, 4).toString('ascii') === 'RIFF') {
-        res.setHeader('Content-Type', 'audio/wav');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        res.send(existing);
-        return;
+  // 1. Serve from disk/tmp if valid RIFF WAV exists
+  for (const filePath of candidatePaths) {
+    if (fs.existsSync(filePath)) {
+      try {
+        const existing = fs.readFileSync(filePath);
+        if (existing.length > 44 && existing.subarray(0, 4).toString('ascii') === 'RIFF') {
+          res.setHeader('Content-Type', 'audio/wav');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          res.send(existing);
+          return;
+        }
+      } catch {
+        // Fall through to next candidate or regenerate
       }
-    } catch {
-      // Fall through to regenerate
     }
   }
 
@@ -872,12 +895,18 @@ app.get('/api/tts/sample/:id', async (req, res) => {
     let genPromise = pendingSamples.get(sampleId);
     if (!genPromise) {
       const voiceMeta = voiceMapping[sampleInfo.voiceKey] || voiceMapping.Kore;
+      const writableTarget = path.join(WRITABLE_PREVIEWS_DIR, `${sampleId}.wav`);
       genPromise = synthesizeSingleSpeakerAudio(
         sampleInfo.text,
         voiceMeta.apiVoice,
         sampleInfo.stylePrompt
       ).then(({ wavBuffer }) => {
-        fs.writeFileSync(filePath, wavBuffer);
+        try {
+          fs.mkdirSync(WRITABLE_PREVIEWS_DIR, { recursive: true });
+          fs.writeFileSync(writableTarget, wavBuffer);
+        } catch (writeErr) {
+          console.warn('Sample cache write skipped:', writeErr);
+        }
         return wavBuffer;
       });
       pendingSamples.set(sampleId, genPromise);
@@ -976,7 +1005,7 @@ app.post('/api/script/ai-generate', async (req, res) => {
   "tips": "คำแนะนำเพิ่มเติมสำหรับการพากย์ให้อารมณ์สมจริง"
 }`;
 
-    const response = await ai.models.generateContent({
+    const response = await getAiClient().models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
       config: {
@@ -1001,9 +1030,10 @@ app.post('/api/script/ai-generate', async (req, res) => {
   }
 });
 
-// Setup Vite or static serving
+// Setup Vite or static serving when running as a standalone Node/Express server (not on Vercel Serverless)
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1021,4 +1051,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!isVercel) {
+  startServer();
+}
+
+export default app;
